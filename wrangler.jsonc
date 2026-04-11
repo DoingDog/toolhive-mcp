@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-04-11",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  }
+}
