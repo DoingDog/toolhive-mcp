@@ -20,6 +20,7 @@ export type ToolFailure = {
 };
 
 export type ToolExecutionResult = ToolSuccess | ToolFailure;
+export type ExecutionResult = ToolExecutionResult;
 
 export function stringifyToolData(data: unknown): string {
   return typeof data === "string" ? data : JSON.stringify(data, null, 2);
