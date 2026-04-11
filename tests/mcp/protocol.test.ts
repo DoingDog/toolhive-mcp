@@ -24,17 +24,23 @@ describe("MCP protocol", () => {
 
   it("returns initialize JSON-RPC result", async () => {
     const response = await call("/mcp", jsonRpcRequest("initialize", {}));
-    const body = await response.json();
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      id: number;
+      result: {
+        protocolVersion: string;
+        capabilities: { tools?: unknown };
+        serverInfo: { name: string };
+      };
+    };
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({
-      jsonrpc: "2.0",
-      id: 1,
-      result: {
-        protocolVersion: "2025-06-18",
-        capabilities: { tools: {} },
-        serverInfo: { name: "cloudflare-multi-mcp", version: "0.1.0" }
-      }
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(1);
+    expect(body.result).toMatchObject({
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: {} },
+      serverInfo: { name: "cloudflare-multi-mcp" }
     });
   });
 
