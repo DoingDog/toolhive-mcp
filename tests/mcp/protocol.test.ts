@@ -29,7 +29,7 @@ describe("MCP protocol", () => {
       id: number;
       result: {
         protocolVersion: string;
-        capabilities: { tools?: unknown };
+        capabilities: { tools: Record<string, never> };
         serverInfo: { name: string };
       };
     };
@@ -39,9 +39,9 @@ describe("MCP protocol", () => {
     expect(body.id).toBe(1);
     expect(body.result).toMatchObject({
       protocolVersion: "2025-06-18",
-      capabilities: { tools: {} },
       serverInfo: { name: "cloudflare-multi-mcp" }
     });
+    expect(body.result.capabilities.tools).toEqual({});
   });
 
   it("returns 202 with an empty body for notifications/initialized", async () => {
