@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { handleJsonRpc } from "../../src/mcp/router";
 import { getEnabledTools } from "../../src/mcp/tool-registry";
 import { parseKeyList, pickRandomKey } from "../../src/lib/keys";
+
+const originalRequest = new Request("https://example.com/mcp", { method: "POST" });
 
 describe("tool registry", () => {
   it('parseKeyList(" a, b ,, c ") returns trimmed non-empty keys', () => {
@@ -98,6 +101,21 @@ describe("tool registry", () => {
 
     expect(puremd?.inputSchema.properties).toHaveProperty("requestheaders");
     expect(puremd?.inputSchema.properties).toHaveProperty("schema");
+  });
+
+  it("routes tools/list with env-gated tools", async () => {
+    const request = { jsonrpc: "2.0" as const, id: 1, method: "tools/list" };
+
+    const withoutEnv = await handleJsonRpc(request, {}, originalRequest);
+    const withoutEnvBody = (await withoutEnv.json()) as { result: { tools: { name: string }[] } };
+    const withoutEnvNames = withoutEnvBody.result.tools.map((tool) => tool.name);
+
+    const withEnv = await handleJsonRpc(request, { TAVILY_API_KEYS: "tvly-a" }, originalRequest);
+    const withEnvBody = (await withEnv.json()) as { result: { tools: { name: string }[] } };
+    const withEnvNames = withEnvBody.result.tools.map((tool) => tool.name);
+
+    expect(withoutEnvNames).not.toContain("tavily.search");
+    expect(withEnvNames).toContain("tavily.search");
   });
 
   it("does not expose roadmap modules", () => {
