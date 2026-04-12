@@ -58,6 +58,10 @@ export async function handleUnsplashSearch(args: unknown, env: AppEnv): Promise<
     return upstreamError("Unsplash API returned invalid JSON");
   }
 
+  if (!Array.isArray(json.results)) {
+    return upstreamError("Unsplash API returned unexpected response shape");
+  }
+
   return {
     ok: true,
     data: {

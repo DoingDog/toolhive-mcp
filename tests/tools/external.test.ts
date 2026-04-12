@@ -107,6 +107,23 @@ describe("Unsplash tool", () => {
       );
     }
   });
+
+  it("returns upstream_error when Unsplash returns an unexpected response shape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "temporary" })));
+
+    const result = await handleUnsplashSearch(
+      { query: "cat" },
+      { UNSPLASH_ACCESS_KEYS: "un-test" }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "Unsplash API returned unexpected response shape"
+      })
+    });
+  });
 });
 
 describe("Context7 tool", () => {
