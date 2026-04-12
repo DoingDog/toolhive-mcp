@@ -73,7 +73,7 @@ describe("MCP protocol", () => {
     });
   });
 
-  it("filters tavily tools from tools/list for the current request only", async () => {
+  it("filters tavily tools from tools/list for the current request only while returning canonical names", async () => {
     const env = { TAVILY_API_KEYS: "tvly-a" };
 
     const defaultResponse = await worker.fetch(
@@ -92,12 +92,12 @@ describe("MCP protocol", () => {
     const disabledBody = (await disabledResponse.json()) as { result: { tools: { name: string }[] } };
     const disabledNames = disabledBody.result.tools.map((tool) => tool.name);
 
-    expect(defaultNames).toContain("tavily.search");
-    expect(disabledNames).not.toContain("tavily.search");
-    expect(disabledNames).not.toContain("tavily.extract");
+    expect(defaultNames).toContain("tavily_search");
+    expect(disabledNames).not.toContain("tavily_search");
+    expect(disabledNames).not.toContain("tavily_extract");
   });
 
-  it("filters only the specified tools from tools/list", async () => {
+  it("filters only the specified tools from tools/list while accepting legacy disable names", async () => {
     const env = { TAVILY_API_KEYS: "tvly-a" };
     const response = await worker.fetch(
       new Request("https://example.com/mcp?disable=tavily.search,calc", jsonRpcRequest("tools/list", {})),
@@ -108,8 +108,8 @@ describe("MCP protocol", () => {
     const names = body.result.tools.map((tool) => tool.name);
 
     expect(names).not.toContain("calc");
-    expect(names).not.toContain("tavily.search");
-    expect(names).toContain("tavily.extract");
+    expect(names).not.toContain("tavily_search");
+    expect(names).toContain("tavily_extract");
     expect(names).toContain("weather");
   });
 
@@ -167,5 +167,75 @@ describe("MCP protocol", () => {
         ]
       }
     });
+  });
+
+  it("routes tools/call through canonical tool names", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "devutils_base64_encode",
+          arguments: { text: "hello" }
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("aGVsbG8=")
+          }
+        ]
+      }
+    });
+  });
+
+  it("keeps legacy dotted tool names working for tools/call", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "devutils.base64_encode",
+          arguments: { text: "hello" }
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("aGVsbG8=")
+          }
+        ]
+      }
+    });
+  });
+
+  it("does not expose any domain tools from tools/list", async () => {
+    const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    const names = body.result.tools.map((tool) => tool.name);
+
+    expect(response.status).toBe(200);
+    expect(names).not.toContain("domain_check_domain");
+    expect(names).not.toContain("domain_explore_name");
+    expect(names).not.toContain("domain_search_domains");
+    expect(names).not.toContain("domain_list_categories");
   });
 });

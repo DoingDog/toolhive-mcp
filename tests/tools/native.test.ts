@@ -436,4 +436,104 @@ describe("native tools", () => {
     });
     expect(body).not.toHaveProperty("error");
   });
+
+  it("router keeps ip as a true no-argument tool", async () => {
+    const request = new Request("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "cf-connecting-ip": "203.0.113.42"
+      }
+    });
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "ip",
+          arguments: {}
+        }
+      },
+      {},
+      request
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("203.0.113.42")
+          }
+        ]
+      }
+    });
+  });
+
+  it("router dispatches canonical devutils names through JSON-RPC", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "devutils_base64_encode",
+          arguments: {
+            text: "hello"
+          }
+        }
+      },
+      {},
+      context.request
+    );
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("aGVsbG8=")
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+  });
+
+  it("router returns devutils handler error for missing canonical arguments", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "devutils_base64_encode",
+          arguments: {}
+        }
+      },
+      {},
+      context.request
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("text must be a string")
+          }
+        ]
+      }
+    });
+    expect(body).not.toHaveProperty("error");
+  });
 });

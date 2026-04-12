@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { handleJsonRpc } from "../../src/mcp/router";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../../src/tools/external/context7";
 import {
   handleDomainCheckDomain,
@@ -270,6 +271,84 @@ describe("Tavily HTTP API tools", () => {
         type: "validation_error",
         message: "input must be a string"
       })
+    });
+  });
+
+  it("routes canonical Tavily names through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ query: "mcp", results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily_search",
+          arguments: {
+            query: "mcp",
+            max_results: 3
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.tavily.com/search",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("results")
+          }
+        ]
+      }
+    });
+  });
+
+  it("keeps legacy dotted Tavily names working through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ query: "mcp", results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily.search",
+          arguments: {
+            query: "mcp",
+            max_results: 3
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.tavily.com/search",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("results")
+          }
+        ]
+      }
     });
   });
 });

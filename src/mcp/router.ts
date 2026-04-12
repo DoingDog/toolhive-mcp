@@ -1,9 +1,9 @@
 import type { JsonRpcRequest } from "./jsonrpc";
 import { jsonRpcError, jsonRpcResult } from "./jsonrpc";
 import { initializeResult } from "./protocol";
-import { internalError, validationError } from "../lib/errors";
+import { internalError } from "../lib/errors";
 import { toToolResult } from "./result";
-import { findEnabledTool, getEnabledTools } from "./tool-registry";
+import { canonicalizeToolName, findEnabledTool, getEnabledTools } from "./tool-registry";
 import { validateToolArguments } from "./validate";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../tools/external/context7";
 import {
@@ -79,7 +79,7 @@ export async function handleJsonRpc(
         return jsonRpcError(request.id ?? null, -32602, validationErrorMessage);
       }
 
-      const result = await dispatchTool(name, args, { env, request: originalRequest });
+      const result = await dispatchTool(tool.name, args, { env, request: originalRequest });
       return jsonRpcResult(request.id ?? null, toToolResult(result));
     }
     default:
@@ -96,7 +96,7 @@ function getDisabledTools(request: Request): string[] {
 }
 
 async function dispatchTool(name: string, args: unknown, context: ToolContext) {
-  switch (name) {
+  switch (canonicalizeToolName(name)) {
     case "weather":
       return handleWeather(args, context);
     case "webfetch":
@@ -107,71 +107,69 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleTime(args, context);
     case "ip":
       return handleIp(args, context);
-    case "tavily.search":
+    case "tavily_search":
       return handleTavilySearch(args, context.env);
-    case "tavily.extract":
+    case "tavily_extract":
       return handleTavilyExtract(args, context.env);
-    case "tavily.crawl":
+    case "tavily_crawl":
       return handleTavilyCrawl(args, context.env);
-    case "tavily.research":
+    case "tavily_research":
       return handleTavilyResearch(args, context.env);
-    case "context7.resolve-library-id":
+    case "context7_resolve-library-id":
       return handleContext7Resolve(args, context.env);
-    case "context7.query-docs":
+    case "context7_query-docs":
       return handleContext7QueryDocs(args, context.env);
-    case "unsplash.search_photos":
+    case "unsplash_search_photos":
       return handleUnsplashSearch(args, context.env);
-    case "puremd.extract":
+    case "puremd_extract":
       return handlePuremdExtract(args, context.env);
-    case "news.get_news":
+    case "news_get_news":
       return handleNewsGetNews(args, context.env);
-    case "news.get_news_detail":
+    case "news_get_news_detail":
       return handleNewsGetNewsDetail(args, context.env);
-    case "news.get_topics":
+    case "news_get_topics":
       return handleNewsGetTopics(args, context.env);
-    case "news.get_regions":
+    case "news_get_regions":
       return handleNewsGetRegions(args, context.env);
-    case "domain.check_domain":
+    case "domain_check_domain":
       return handleDomainCheckDomain(args, context.env);
-    case "domain.explore_name":
+    case "domain_explore_name":
       return handleDomainExploreName(args, context.env);
-    case "domain.search_domains":
+    case "domain_search_domains":
       return handleDomainSearchDomains(args, context.env);
-    case "domain.list_categories":
+    case "domain_list_categories":
       return handleDomainListCategories(args, context.env);
-    case "devutils.base64_encode":
+    case "devutils_base64_encode":
       return handleBase64Encode(args);
-    case "devutils.base64_decode":
+    case "devutils_base64_decode":
       return handleBase64Decode(args);
-    case "devutils.hash":
+    case "devutils_hash":
       return handleHash(args);
-    case "devutils.uuid":
+    case "devutils_uuid":
       return handleUuid();
-    case "devutils.jwt_decode":
+    case "devutils_jwt_decode":
       return handleJwtDecode(args);
-    case "devutils.json_format":
+    case "devutils_json_format":
       return handleJsonFormat(args);
-    case "devutils.json_validate":
+    case "devutils_json_validate":
       return handleJsonValidate(args);
-    case "devutils.regex_test":
+    case "devutils_regex_test":
       return handleRegexTest(args);
-    case "devutils.url_parse":
+    case "devutils_url_parse":
       return handleUrlParse(args);
-    case "devutils.timestamp_convert":
+    case "devutils_timestamp_convert":
       return handleTimestampConvert(args);
-    case "devutils.ip_validate":
+    case "devutils_ip_validate":
       return handleIpValidate(args);
-    case "devutils.cidr_calculate":
+    case "devutils_cidr_calculate":
       return handleCidrCalculate(args);
-    case "devutils.text_stats":
+    case "devutils_text_stats":
       return handleTextStats(args);
-    case "devutils.slugify":
+    case "devutils_slugify":
       return handleSlugify(args);
-    case "devutils.case_convert":
+    case "devutils_case_convert":
       return handleCaseConvert(args);
     default:
-      return name.includes(".")
-        ? internalError(`Tool handler not implemented: ${name}`)
-        : validationError(`Unknown native tool: ${name}`);
+      return internalError(`Tool handler not implemented: ${name}`);
   }
 }

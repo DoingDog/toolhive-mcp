@@ -1,6 +1,6 @@
 import { hasKeys, type AppEnv } from "../lib/env";
 import type { ToolDefinition } from "./schema";
-import { emptyObjectSchema } from "./schema";
+import { emptyObjectSchema, type JsonSchema } from "./schema";
 
 const nativeTools: ToolDefinition[] = [
   {
@@ -87,9 +87,17 @@ const nativeTools: ToolDefinition[] = [
   }
 ];
 
-const externalTools: ToolDefinition[] = [
+type ExternalToolConfig = Omit<ToolDefinition, "name"> & {
+  legacyName: string;
+};
+
+function toCanonicalToolName(name: string): string {
+  return name.replace(/\./g, "_");
+}
+
+const externalToolConfigs: ExternalToolConfig[] = [
   {
-    name: "context7.resolve-library-id",
+    legacyName: "context7.resolve-library-id",
     description: "Resolve a Context7 library identifier from a package or library name",
     requiresEnv: "CONTEXT7_API_KEYS",
     inputSchema: {
@@ -102,7 +110,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "context7.query-docs",
+    legacyName: "context7.query-docs",
     description: "Query Context7 documentation for a resolved library",
     requiresEnv: "CONTEXT7_API_KEYS",
     inputSchema: {
@@ -116,7 +124,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "tavily.search",
+    legacyName: "tavily.search",
     description: "Search the web with Tavily",
     requiresEnv: "TAVILY_API_KEYS",
     inputSchema: {
@@ -136,7 +144,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "tavily.extract",
+    legacyName: "tavily.extract",
     description: "Extract content from web pages with Tavily",
     requiresEnv: "TAVILY_API_KEYS",
     inputSchema: {
@@ -154,7 +162,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "tavily.crawl",
+    legacyName: "tavily.crawl",
     description: "Crawl web pages with Tavily",
     requiresEnv: "TAVILY_API_KEYS",
     inputSchema: {
@@ -180,7 +188,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "tavily.research",
+    legacyName: "tavily.research",
     description: "Perform deep research with Tavily",
     requiresEnv: "TAVILY_API_KEYS",
     inputSchema: {
@@ -197,7 +205,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "unsplash.search_photos",
+    legacyName: "unsplash.search_photos",
     description: "Search Unsplash photos",
     requiresEnv: "UNSPLASH_ACCESS_KEYS",
     inputSchema: {
@@ -215,7 +223,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "puremd.extract",
+    legacyName: "puremd.extract",
     description: "Extract clean markdown from a URL",
     requiresEnv: "PUREMD_API_KEYS",
     inputSchema: {
@@ -235,7 +243,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "news.get_news",
+    legacyName: "news.get_news",
     description: "Get recent news items from newsmcp",
     inputSchema: {
       type: "object",
@@ -251,7 +259,7 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "news.get_news_detail",
+    legacyName: "news.get_news_detail",
     description: "Get a news item detail by event id",
     inputSchema: {
       type: "object",
@@ -263,59 +271,153 @@ const externalTools: ToolDefinition[] = [
     }
   },
   {
-    name: "news.get_topics",
+    legacyName: "news.get_topics",
     description: "Get available news topics from newsmcp",
     inputSchema: emptyObjectSchema
   },
   {
-    name: "news.get_regions",
+    legacyName: "news.get_regions",
     description: "Get available news regions from newsmcp",
     inputSchema: emptyObjectSchema
   },
-  {
-    name: "domain.check_domain",
-    description: "Check a domain name and return availability details",
-    inputSchema: {
-      type: "object",
-      properties: {
-        domain: { type: "string" },
-        context: { type: "string" },
-        max_price: { type: "number" }
-      },
-      required: ["domain"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "domain.explore_name",
-    description: "Explore domain options for a name",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        context: { type: "string" },
-        max_price: { type: "number" }
-      },
-      required: ["name"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "domain.search_domains",
-    description: "Search domains by category and price",
-    inputSchema: {
-      type: "object",
-      properties: {
-        category: { type: "string" },
-        max_price: { type: "number" }
-      },
-      additionalProperties: false
-    }
-  },
-  // domain.list_categories is intentionally kept out of the current release
-  // because the upstream endpoint is currently returning 503. The handler code
-  // remains in src/tools/external/domain.ts for future re-enable.
+  // All domain tools are intentionally kept out of the current release
+  // because the upstream endpoint set is currently unstable / unavailable.
+  // The handler code remains in src/tools/external/domain.ts for future re-enable.
 ];
+
+const externalTools: ToolDefinition[] = externalToolConfigs.map((tool) => ({
+  ...tool,
+  name: toCanonicalToolName(tool.legacyName)
+}));
+
+type DevutilsToolName =
+  | "base64_encode"
+  | "base64_decode"
+  | "hash"
+  | "uuid"
+  | "jwt_decode"
+  | "json_format"
+  | "json_validate"
+  | "regex_test"
+  | "url_parse"
+  | "timestamp_convert"
+  | "ip_validate"
+  | "cidr_calculate"
+  | "text_stats"
+  | "slugify"
+  | "case_convert";
+
+const devutilsToolSchemas: Record<DevutilsToolName, JsonSchema> = {
+  base64_encode: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to encode as base64" }
+    },
+    additionalProperties: false
+  },
+  base64_decode: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Base64 text to decode" }
+    },
+    additionalProperties: false
+  },
+  hash: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to hash" },
+      algorithm: {
+        type: "string",
+        enum: ["SHA-1", "SHA-256", "SHA-384", "SHA-512"],
+        description: "Hash algorithm to use"
+      }
+    },
+    additionalProperties: false
+  },
+  uuid: emptyObjectSchema,
+  jwt_decode: {
+    type: "object",
+    properties: {
+      token: { type: "string", description: "JWT string to decode" }
+    },
+    additionalProperties: false
+  },
+  json_format: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "JSON text to pretty-print or minify" },
+      minify: { type: "boolean", description: "Whether to return minified JSON" }
+    },
+    additionalProperties: false
+  },
+  json_validate: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "JSON text to validate" }
+    },
+    additionalProperties: false
+  },
+  regex_test: {
+    type: "object",
+    properties: {
+      pattern: { type: "string", description: "Regular expression pattern" },
+      text: { type: "string", description: "Text to test against the pattern" },
+      flags: { type: "string", description: "Optional RegExp flags" }
+    },
+    additionalProperties: false
+  },
+  url_parse: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "URL to parse" }
+    },
+    additionalProperties: false
+  },
+  timestamp_convert: {
+    type: "object",
+    properties: {
+      value: {
+        description: "Date string or Unix timestamp in seconds"
+      }
+    },
+    additionalProperties: false
+  },
+  ip_validate: {
+    type: "object",
+    properties: {
+      ip: { type: "string", description: "IPv4 address to validate" }
+    },
+    additionalProperties: false
+  },
+  cidr_calculate: {
+    type: "object",
+    properties: {
+      cidr: { type: "string", description: "IPv4 CIDR notation, such as 192.168.0.0/24" }
+    },
+    additionalProperties: false
+  },
+  text_stats: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to analyze" }
+    },
+    additionalProperties: false
+  },
+  slugify: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to convert into a slug" }
+    },
+    additionalProperties: false
+  },
+  case_convert: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to convert between common case formats" }
+    },
+    additionalProperties: false
+  }
+};
 
 const devutilsToolNames = [
   "base64_encode",
@@ -336,18 +438,23 @@ const devutilsToolNames = [
 ] as const;
 
 const devutilsTools: ToolDefinition[] = devutilsToolNames.map((name) => ({
-  name: `devutils.${name}`,
+  name: `devutils_${name}`,
   description: `Run the ${name} developer utility`,
-  inputSchema: {
-    type: "object",
-    properties: {},
-    additionalProperties: true
-  }
+  inputSchema: devutilsToolSchemas[name as DevutilsToolName]
 }));
 
 type GetEnabledToolsOptions = {
   disabledTools?: string[];
 };
+
+const toolAliasMap = new Map<string, string>([
+  ...externalToolConfigs.map((tool) => [tool.legacyName, toCanonicalToolName(tool.legacyName)] as const),
+  ...devutilsToolNames.map((name) => [`devutils.${name}`, `devutils_${name}`] as const)
+]);
+
+export function canonicalizeToolName(name: string): string {
+  return toolAliasMap.get(name) ?? name;
+}
 
 export function getEnabledTools(env: AppEnv, options: GetEnabledToolsOptions = {}): ToolDefinition[] {
   const tools = [
@@ -364,13 +471,17 @@ export function getEnabledTools(env: AppEnv, options: GetEnabledToolsOptions = {
 }
 
 export function findEnabledTool(name: string, env: AppEnv): ToolDefinition | undefined {
-  return getEnabledTools(env).find((tool) => tool.name === name);
+  const canonicalName = canonicalizeToolName(name);
+  return getEnabledTools(env).find((tool) => tool.name === canonicalName);
 }
 
 function matchesDisabledTool(name: string, disabledTools: string[]): boolean {
-  return disabledTools.some((disabledTool) =>
-    disabledTool.endsWith(".*")
-      ? name.startsWith(`${disabledTool.slice(0, -2)}.`)
-      : name === disabledTool
-  );
+  return disabledTools.some((disabledTool) => {
+    const canonicalDisabled = canonicalizeToolName(disabledTool);
+    if (disabledTool.endsWith(".*")) {
+      const legacyPrefix = disabledTool.slice(0, -2);
+      return name.startsWith(`${legacyPrefix}_`) || name.startsWith(`${canonicalizeToolName(legacyPrefix)}_`);
+    }
+    return name === canonicalDisabled;
+  });
 }
