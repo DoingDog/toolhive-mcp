@@ -37,9 +37,16 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     return validationError("body must be a string");
   }
 
-  const headers = new Headers(webfetchArgs.requestheaders as HeadersInit | undefined);
-  if (!headers.has("user-agent")) {
-    headers.set("user-agent", DEFAULT_CHROME_UA);
+  let headers: Headers;
+  try {
+    headers = new Headers(webfetchArgs.requestheaders as HeadersInit | undefined);
+    if (!headers.has("user-agent")) {
+      headers.set("user-agent", DEFAULT_CHROME_UA);
+    }
+  } catch (error) {
+    return validationError(
+      error instanceof Error ? error.message : "requestheaders are invalid"
+    );
   }
 
   const init: RequestInit = { method, headers };
@@ -47,8 +54,23 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     init.body = webfetchArgs.body;
   }
 
-  const response = await fetch(url.toString(), init);
-  const body = await response.text();
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), init);
+  } catch (error) {
+    return upstreamError(
+      error instanceof Error ? error.message : "webfetch request failed"
+    );
+  }
+
+  let body: string;
+  try {
+    body = await response.text();
+  } catch (error) {
+    return upstreamError(
+      error instanceof Error ? error.message : "webfetch response read failed"
+    );
+  }
 
   if (!response.ok) {
     return upstreamError("webfetch request failed", response.status, body);

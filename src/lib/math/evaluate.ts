@@ -77,7 +77,19 @@ class ExpressionParser {
   }
 
   private parsePower(): number {
-    let value = this.parseUnary();
+    let sign = 1;
+    while (this.peek() === "+" || this.peek() === "-") {
+      if (this.consume() === "-") {
+        sign *= -1;
+      }
+    }
+
+    const value = this.parsePowerBase();
+    return sign * value;
+  }
+
+  private parsePowerBase(): number {
+    let value = this.parsePrimary();
 
     if (this.peek() === "^") {
       this.index += 1;
@@ -85,19 +97,6 @@ class ExpressionParser {
     }
 
     return value;
-  }
-
-  private parseUnary(): number {
-    const token = this.peek();
-    if (token === "+") {
-      this.index += 1;
-      return this.parseUnary();
-    }
-    if (token === "-") {
-      this.index += 1;
-      return -this.parseUnary();
-    }
-    return this.parsePrimary();
   }
 
   private parsePrimary(): number {
