@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { handleBase64Decode, handleBase64Encode } from "../../src/tools/devutils/base64";
-import { handleIpValidate } from "../../src/tools/devutils/ip-tools";
+import { handleHash } from "../../src/tools/devutils/hash";
+import { handleCidrCalculate, handleIpValidate } from "../../src/tools/devutils/ip-tools";
 import { handleJsonValidate } from "../../src/tools/devutils/json-tools";
 import { handleUrlParse } from "../../src/tools/devutils/url-parse";
 
@@ -16,6 +17,15 @@ describe("devutils", () => {
     expect(decoded.ok).toBe(true);
     if (decoded.ok) {
       expect(decoded.data).toEqual({ result: "hello" });
+    }
+  });
+
+  it("accepts explicit SHA-256 algorithm names", async () => {
+    const result = await handleHash({ text: "hello", algorithm: "SHA-256" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect((result.data as any).algorithm).toBe("SHA-256");
     }
   });
 
@@ -42,4 +52,11 @@ describe("devutils", () => {
       expect((result.data as any).valid).toBe(true);
     }
   });
+
+  it("rejects invalid CIDR IPv4 addresses", async () => {
+    const result = await handleCidrCalculate({ cidr: "999.999.999.999/24" });
+
+    expect(result.ok).toBe(false);
+  });
 });
+
