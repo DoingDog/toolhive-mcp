@@ -9,10 +9,12 @@ const nativeTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        location: { type: "string", description: "City or place name to look up" },
-        units: { type: "string", enum: ["metric", "imperial"], default: "metric" }
+        query: { type: "string" },
+        format: { type: "string", enum: ["json", "text"], default: "json" },
+        lang: { type: "string" },
+        units: { type: "string", enum: ["metric", "us", "uk"] }
       },
-      required: ["location"],
+      required: ["query"],
       additionalProperties: false
     }
   },
@@ -23,7 +25,13 @@ const nativeTools: ToolDefinition[] = [
       type: "object",
       properties: {
         url: { type: "string", description: "HTTP or HTTPS URL to fetch" },
-        format: { type: "string", enum: ["markdown", "text", "html"], default: "markdown" }
+        method: { type: "string", enum: ["GET", "POST"], default: "GET" },
+        requestheaders: {
+          type: "object",
+          additionalProperties: { type: "string" }
+        },
+        body: { type: "string" },
+        return_responseheaders: { type: "boolean", default: false }
       },
       required: ["url"],
       additionalProperties: false
@@ -47,7 +55,7 @@ const nativeTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        timezone: { type: "string", description: "IANA timezone, e.g. Asia/Shanghai" }
+        timezone: { type: "string", description: "IANA timezone, e.g. Asia/Shanghai", default: "UTC" }
       },
       additionalProperties: false
     }
@@ -67,7 +75,8 @@ const externalTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Package or library name to resolve" }
+        query: { type: "string", description: "Package or library name to resolve" },
+        libraryName: { type: "string" }
       },
       required: ["query"],
       additionalProperties: false
@@ -81,10 +90,9 @@ const externalTools: ToolDefinition[] = [
       type: "object",
       properties: {
         libraryId: { type: "string", description: "Resolved Context7 library id" },
-        question: { type: "string", description: "Documentation question" },
-        limit: { type: "number", minimum: 1, default: 5 }
+        query: { type: "string" }
       },
-      required: ["libraryId", "question"],
+      required: ["libraryId", "query"],
       additionalProperties: false
     }
   },
@@ -96,8 +104,13 @@ const externalTools: ToolDefinition[] = [
       type: "object",
       properties: {
         query: { type: "string", description: "Search query" },
-        maxResults: { type: "number", minimum: 1, default: 5 },
-        searchDepth: { type: "string", enum: ["basic", "advanced"], default: "basic" }
+        search_depth: { type: "string", enum: ["basic", "advanced", "fast", "ultra-fast"] },
+        topic: { type: "string", enum: ["general", "news", "finance"] },
+        max_results: { type: "integer", minimum: 0, maximum: 20 },
+        include_answer: {},
+        include_raw_content: {},
+        include_domains: { type: "array", items: { type: "string" } },
+        exclude_domains: { type: "array", items: { type: "string" } }
       },
       required: ["query"],
       additionalProperties: false
@@ -110,11 +123,12 @@ const externalTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        urls: {
-          type: "array",
-          items: { type: "string" },
-          description: "URLs to extract"
-        }
+        urls: {},
+        query: { type: "string" },
+        extract_depth: { type: "string", enum: ["basic", "advanced"] },
+        format: { type: "string", enum: ["markdown", "text"] },
+        include_images: { type: "boolean" },
+        include_favicon: { type: "boolean" }
       },
       required: ["urls"],
       additionalProperties: false
@@ -128,8 +142,11 @@ const externalTools: ToolDefinition[] = [
       type: "object",
       properties: {
         query: { type: "string", description: "Photo search query" },
-        perPage: { type: "number", minimum: 1, default: 10 },
-        page: { type: "number", minimum: 1, default: 1 }
+        page: { type: "integer", minimum: 1 },
+        per_page: { type: "integer", minimum: 1, maximum: 30 },
+        orientation: { type: "string", enum: ["landscape", "portrait", "squarish"] },
+        color: { type: "string" },
+        order_by: { type: "string" }
       },
       required: ["query"],
       additionalProperties: false
@@ -142,7 +159,14 @@ const externalTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        url: { type: "string", description: "URL to extract" }
+        url: { type: "string", description: "URL to extract" },
+        format: { type: "string", enum: ["markdown", "text"] },
+        requestheaders: {
+          type: "object",
+          additionalProperties: { type: "string" }
+        },
+        prompt: { type: "string" },
+        schema: { type: "string" }
       },
       required: ["url"],
       additionalProperties: false
@@ -173,11 +197,8 @@ const devutilsTools: ToolDefinition[] = devutilsToolNames.map((name) => ({
   description: `Run the ${name} developer utility`,
   inputSchema: {
     type: "object",
-    properties: {
-      input: { type: "string", description: "Tool input payload" }
-    },
-    required: ["input"],
-    additionalProperties: false
+    properties: {},
+    additionalProperties: true
   }
 }));
 
