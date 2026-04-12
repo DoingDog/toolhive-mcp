@@ -146,6 +146,22 @@ describe("Context7 tool", () => {
     );
   });
 
+  it("maps resolve query to Context7 libraryName", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleContext7Resolve(
+      { query: "react" },
+      { CONTEXT7_API_KEYS: "ctx-test" }
+    );
+
+    expect(result.ok).toBe(true);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    const body = JSON.parse(String(init.body));
+    expect(body.params.arguments).toEqual({ libraryName: "react" });
+  });
+
   it("validates query-docs arguments", async () => {
     const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
     vi.stubGlobal("fetch", fetchMock);
