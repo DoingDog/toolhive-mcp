@@ -7,7 +7,9 @@ export async function handleRegexTest(args: unknown): Promise<ToolExecutionResul
     return validationError("pattern and text must be strings");
   }
   try {
-    const regex = new RegExp(input.pattern, typeof input.flags === "string" ? input.flags : "g");
+    const rawFlags = typeof input.flags === "string" ? input.flags : "g";
+    const flags = rawFlags.includes("g") ? rawFlags : `${rawFlags}g`;
+    const regex = new RegExp(input.pattern, flags);
     return {
       ok: true,
       data: {
