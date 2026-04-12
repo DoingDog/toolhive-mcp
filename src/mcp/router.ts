@@ -4,6 +4,7 @@ import { initializeResult } from "./protocol";
 import { internalError, validationError } from "../lib/errors";
 import { toToolResult } from "./result";
 import { findEnabledTool, getEnabledTools } from "./tool-registry";
+import { validateToolArguments } from "./validate";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../tools/external/context7";
 import { handlePuremdExtract } from "../tools/external/puremd";
 import { handleTavilyExtract, handleTavilySearch } from "../tools/external/tavily";
@@ -48,11 +49,17 @@ export async function handleJsonRpc(
         return jsonRpcError(request.id ?? null, -32602, "Invalid params");
       }
 
-      if (!findEnabledTool(name, env)) {
+      const tool = findEnabledTool(name, env);
+      if (!tool) {
         return jsonRpcError(request.id ?? null, -32602, `Unknown tool: ${name}`);
       }
 
       const args = "arguments" in params ? (params as { arguments?: unknown }).arguments ?? {} : {};
+      const validationErrorMessage = validateToolArguments(tool.inputSchema, args);
+      if (validationErrorMessage) {
+        return jsonRpcError(request.id ?? null, -32602, validationErrorMessage);
+      }
+
       const result = await dispatchTool(name, args, { env, request: originalRequest });
       return jsonRpcResult(request.id ?? null, toToolResult(result));
     }

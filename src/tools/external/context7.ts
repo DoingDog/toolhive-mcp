@@ -43,7 +43,8 @@ async function callContext7(method: string, params: unknown, env: AppEnv): Promi
   }
 
   try {
-    return { ok: true, data: JSON.parse(text) as unknown };
+    const parsed = JSON.parse(text) as { result?: unknown };
+    return { ok: true, data: parsed.result ?? parsed };
   } catch {
     return upstreamError("Context7 MCP returned invalid JSON");
   }

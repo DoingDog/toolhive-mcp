@@ -2,7 +2,7 @@ export type JsonSchema = {
   type: "object";
   properties?: Record<string, unknown>;
   required?: string[];
-  additionalProperties?: boolean;
+  additionalProperties?: boolean | Record<string, unknown>;
 };
 
 export type ToolDefinition = {

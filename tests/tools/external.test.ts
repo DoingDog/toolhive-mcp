@@ -127,8 +127,8 @@ describe("Unsplash tool", () => {
 });
 
 describe("Context7 tool", () => {
-  it("posts MCP tool call requests to Context7", async () => {
-    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+  it("unwraps the upstream JSON-RPC result payload", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "ok" }] } }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await handleContext7Resolve(
@@ -136,7 +136,10 @@ describe("Context7 tool", () => {
       { CONTEXT7_API_KEYS: "ctx-test" }
     );
 
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({
+      ok: true,
+      data: { content: [{ type: "text", text: "ok" }] }
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://mcp.context7.com/mcp",
       expect.objectContaining({ method: "POST" })
@@ -174,6 +177,35 @@ describe("Pure.md tool", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://pure.md/example.com/page",
       expect.objectContaining({ headers: expect.any(Object) })
+    );
+  });
+
+  it("uses POST when prompt or schema is provided and forwards requestheaders", async () => {
+    const fetchMock = vi.fn(async () => new Response("{\"ok\":true}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handlePuremdExtract(
+      {
+        url: "https://example.com/page",
+        format: "markdown",
+        requestheaders: { "x-test": "1" },
+        prompt: "extract main content",
+        schema: "{\"type\":\"object\"}"
+      },
+      { PUREMD_API_KEYS: "pm-test" }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://pure.md/example.com/page",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer pm-test",
+          "x-api-key": "pm-test",
+          "x-test": "1"
+        })
+      })
     );
   });
 });

@@ -72,4 +72,25 @@ describe("MCP protocol", () => {
       }
     });
   });
+
+  it("rejects tools/call arguments that violate declared schema", async () => {
+    const response = await call(
+      "/mcp",
+      jsonRpcRequest("tools/call", {
+        name: "calc",
+        arguments: {}
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32602,
+        message: "Invalid params"
+      }
+    });
+  });
 });
