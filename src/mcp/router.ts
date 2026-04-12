@@ -4,6 +4,10 @@ import { initializeResult } from "./protocol";
 import { internalError, validationError } from "../lib/errors";
 import { toToolResult } from "./result";
 import { findEnabledTool, getEnabledTools } from "./tool-registry";
+import { handleContext7QueryDocs, handleContext7Resolve } from "../tools/external/context7";
+import { handlePuremdExtract } from "../tools/external/puremd";
+import { handleTavilyExtract, handleTavilySearch } from "../tools/external/tavily";
+import { handleUnsplashSearch } from "../tools/external/unsplash";
 import { handleCalc } from "../tools/native/calc";
 import { handleIp } from "../tools/native/ip";
 import { handleTime } from "../tools/native/time";
@@ -59,6 +63,18 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleTime(args, context);
     case "ip":
       return handleIp(args, context);
+    case "tavily.search":
+      return handleTavilySearch(args, context.env);
+    case "tavily.extract":
+      return handleTavilyExtract(args, context.env);
+    case "context7.resolve-library-id":
+      return handleContext7Resolve(args, context.env);
+    case "context7.query-docs":
+      return handleContext7QueryDocs(args, context.env);
+    case "unsplash.search_photos":
+      return handleUnsplashSearch(args, context.env);
+    case "puremd.extract":
+      return handlePuremdExtract(args, context.env);
     default:
       return name.includes(".")
         ? internalError(`Tool handler not implemented: ${name}`)
