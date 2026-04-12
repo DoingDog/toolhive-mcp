@@ -1,49 +1,112 @@
-# Cloudflare Workers Multi-MCP Server
+# Toolhive MCP
 
-Remote HTTP MCP server for Cloudflare Workers.
+Toolhive MCP is a remote HTTP MCP server built for Cloudflare Workers. It packages a practical set of MCP tools behind one `/mcp` endpoint, keeps tool names Anthropic-compatible, and is ready to run as a hosted endpoint instead of a local stdio server.
+
+Demo endpoint: `https://mcp.awsl.app/mcp`
+
+## Why
+
+Running MCP tools behind a single hosted endpoint is useful when you want:
+
+- a browser-friendly, remotely accessible MCP server
+- one deployment that combines native utilities and selected third-party integrations
+- Anthropic-compatible canonical tool names such as `context7_query_docs` and `tavily_search`
+- Cloudflare Workers deployment instead of maintaining a long-running custom server
+
+## Features
+
+Current release capabilities:
+
+- Native tools: `weather`, `webfetch`, `calc`, `time`, `ip`
+- Context7 tools: `context7_resolve-library-id`, `context7_query-docs`
+- Tavily tools: `tavily_search`, `tavily_extract`, `tavily_crawl`, `tavily_research`
+- Unsplash tool: `unsplash_search_photos`
+- Pure.md tool: `puremd_extract`
+- Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
+- Env-gated tool exposure: integrations only appear when the corresponding secrets are configured
+- Single HTTP MCP endpoint exposed at `/mcp`
 
 ## Endpoint
 
-Deploy the Worker and configure your MCP client with:
+The server exposes one MCP endpoint:
 
-    https://<worker-domain>/mcp
+- `https://mcp.awsl.app/mcp`
 
-Only `/mcp` is supported. Other paths return `404`.
+When self-hosting, configure your MCP client to use:
 
-## Scope
+- `https://<your-worker-domain>/mcp`
 
-Implemented first-release tools:
-
-- Native: `weather`, `webfetch`, `calc`, `time`, `ip`
-- Tavily HTTP API: `tavily.search`, `tavily.extract`
-- Context7: `context7.resolve-library-id`, `context7.query-docs`
-- Unsplash: `unsplash.search_photos`
-- Pure.md: `puremd.extract`
-- Devutils subset: `devutils.*`
-
-Roadmap, not implemented in first release:
-
-- `news.*` from newsmcp
-- `domain.*` from agent-domain-service-mcp
-
-## Environment variables
-
-Use Cloudflare secrets for API keys:
-
-    npx wrangler secret put TAVILY_API_KEYS
-    npx wrangler secret put CONTEXT7_API_KEYS
-    npx wrangler secret put UNSPLASH_ACCESS_KEYS
-    npx wrangler secret put PUREMD_API_KEYS
-
-Each value accepts one key or comma-separated keys. A random key is selected per request.
-
-## Development
-
-    npm install
-    npm test
-    npm run typecheck
-    npm run dev
+Only `/mcp` is supported for MCP requests in this project.
 
 ## Deploy
 
-    npm run deploy
+Install dependencies and deploy with Wrangler:
+
+```bash
+npm install
+npm run deploy
+```
+
+This project targets Cloudflare Workers and uses the repository's existing `wrangler.jsonc` configuration.
+
+## Secrets
+
+Third-party tools are enabled by Cloudflare secrets. Set only the providers you actually want to expose.
+
+```bash
+npx wrangler secret put TAVILY_API_KEYS
+npx wrangler secret put CONTEXT7_API_KEYS
+npx wrangler secret put UNSPLASH_ACCESS_KEYS
+npx wrangler secret put PUREMD_API_KEYS
+```
+
+Each secret accepts either a single key or a comma-separated list of keys. The server selects from the configured keys at request time.
+
+## Development
+
+Local development workflow:
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run dev
+```
+
+Useful notes:
+
+- `npm run dev` starts the Worker locally through Wrangler
+- `npm test` runs the Vitest suite
+- `npm run typecheck` runs TypeScript without emitting build output
+
+## Disabled domain tools
+
+Domain-related tools are intentionally disabled in this release.
+
+The codebase still contains domain integration code for possible future re-enable, but the released MCP surface does not expose any `domain_*` tools. README examples and feature descriptions should not be read as implying that domain tools are currently available.
+
+## License
+
+This project is released under the 0BSD license. See [`LICENSE`](./LICENSE).
+
+## Acknowledgements
+
+### Open-source references
+
+- Cloudflare Workers and Wrangler for the deployment runtime and development workflow
+- The MCP ecosystem patterns that informed the HTTP tool-serving shape of this project
+- Upstream service documentation used to align request and response handling
+
+### Community packages
+
+- Tavily for search, extract, crawl, and research APIs
+- Context7 for library resolution and documentation querying
+- Unsplash for image search
+- Pure.md for content extraction
+- Vitest and TypeScript for testing and type safety
+
+### With Claude
+
+- Planned, refined, and prepared with Claude-assisted development workflows
+- Release-facing documentation rewritten with Claude as an editing and structuring partner
+- Final tool-surface notes kept aligned with the current release constraints, including the disabled domain tools

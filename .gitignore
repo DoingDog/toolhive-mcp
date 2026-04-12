@@ -8,4 +8,5 @@ coverage/
 .env.*
 .wrangler/
 .superpowers/
-.omc/research/
+.claude/
+.omc/
