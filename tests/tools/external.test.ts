@@ -159,7 +159,7 @@ describe("Context7 tool", () => {
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
     const [, init] = calls[0]!;
     const body = JSON.parse(String(init.body));
-    expect(body.params.arguments).toEqual({ libraryName: "react" });
+    expect(body.params.arguments).toEqual({ query: "react", libraryName: "react" });
   });
 
   it("validates query-docs arguments", async () => {

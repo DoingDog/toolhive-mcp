@@ -75,8 +75,7 @@ const externalTools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Package or library name to resolve" },
-        libraryName: { type: "string" }
+        query: { type: "string", description: "Package or library name to resolve" }
       },
       required: ["query"],
       additionalProperties: false

@@ -86,9 +86,9 @@ describe("tool registry", () => {
     expect(names).toContain("puremd.extract");
 
     expect(context7Resolve?.inputSchema.properties).toMatchObject({
-      query: { type: "string" },
-      libraryName: { type: "string" }
+      query: { type: "string" }
     });
+    expect(context7Resolve?.inputSchema.required).toEqual(["query"]);
     expect(context7Query?.inputSchema.required).toEqual(["libraryId", "query"]);
 
     expect(tavilySearch?.inputSchema.properties).toHaveProperty("search_depth");

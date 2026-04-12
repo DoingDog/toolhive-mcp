@@ -52,11 +52,11 @@ async function callContext7(method: string, params: unknown, env: AppEnv): Promi
 
 export async function handleContext7Resolve(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
   const input = args as { query?: unknown; libraryName?: unknown } | undefined;
-  const libraryName = typeof input?.libraryName === "string" ? input.libraryName : input?.query;
-  if (typeof libraryName !== "string") {
+  const query = typeof input?.query === "string" ? input.query : input?.libraryName;
+  if (typeof query !== "string") {
     return validationError("query must be a string");
   }
-  return callContext7("resolve-library-id", { libraryName }, env);
+  return callContext7("resolve-library-id", { query, libraryName: query }, env);
 }
 
 export async function handleContext7QueryDocs(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
