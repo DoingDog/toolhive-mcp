@@ -1,43 +1,45 @@
 import type { AppEnv } from "../../lib/env";
 import { configError, upstreamError, validationError } from "../../lib/errors";
-import { parseKeyList, pickRandomKey } from "../../lib/keys";
+import { parseKeyList } from "../../lib/keys";
+import { fetchWithKeyRetry } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
-function tavilyKey(env: AppEnv): string | undefined {
-  return pickRandomKey(parseKeyList(env.TAVILY_API_KEYS));
-}
-
-async function postTavily(endpoint: "search" | "extract", body: unknown, env: AppEnv): Promise<ToolExecutionResult> {
-  const key = tavilyKey(env);
-  if (!key) {
+async function postTavily(
+  endpoint: "search" | "extract" | "crawl" | "research",
+  body: unknown,
+  env: AppEnv
+): Promise<ToolExecutionResult> {
+  const keys = parseKeyList(env.TAVILY_API_KEYS);
+  if (keys.length === 0) {
     return configError("TAVILY_API_KEYS is not configured");
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`https://api.tavily.com/${endpoint}`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${key}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-  } catch (error) {
-    return upstreamError(error instanceof Error ? error.message : "Tavily request failed");
+  const result = await fetchWithKeyRetry({
+    keys,
+    serviceName: "Tavily API",
+    makeRequest: (key) => ({
+      url: `https://api.tavily.com/${endpoint}`,
+      init: {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${key}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(body)
+      }
+    })
+  });
+
+  if ("error" in result) {
+    return result;
   }
 
-  const text = await response.text();
-  if (!response.ok) {
-    return upstreamError(`Tavily API returned ${response.status}: ${text}`, response.status);
-  }
-
-  if (!text) {
+  if (!result.text) {
     return { ok: true, data: {} };
   }
 
   try {
-    return { ok: true, data: JSON.parse(text) as unknown };
+    return { ok: true, data: JSON.parse(result.text) as unknown };
   } catch {
     return upstreamError("Tavily API returned invalid JSON");
   }
@@ -59,4 +61,18 @@ export async function handleTavilyExtract(args: unknown, env: AppEnv): Promise<T
     return validationError("urls must be a string or string array");
   }
   return postTavily("extract", args, env);
+}
+
+export async function handleTavilyCrawl(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
+  if (!args || typeof args !== "object" || typeof (args as { url?: unknown }).url !== "string") {
+    return validationError("url must be a string");
+  }
+  return postTavily("crawl", args, env);
+}
+
+export async function handleTavilyResearch(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
+  if (!args || typeof args !== "object" || typeof (args as { input?: unknown }).input !== "string") {
+    return validationError("input must be a string");
+  }
+  return postTavily("research", args, env);
 }

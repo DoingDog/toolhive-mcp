@@ -1,6 +1,7 @@
 import type { AppEnv } from "../../lib/env";
 import { configError, upstreamError, validationError } from "../../lib/errors";
-import { parseKeyList, pickRandomKey } from "../../lib/keys";
+import { parseKeyList } from "../../lib/keys";
+import { fetchWithKeyRetry } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
 type UnsplashPhoto = {
@@ -20,8 +21,8 @@ export async function handleUnsplashSearch(args: unknown, env: AppEnv): Promise<
     return validationError("query must be a string");
   }
 
-  const key = pickRandomKey(parseKeyList(env.UNSPLASH_ACCESS_KEYS));
-  if (!key) {
+  const keys = parseKeyList(env.UNSPLASH_ACCESS_KEYS);
+  if (keys.length === 0) {
     return configError("UNSPLASH_ACCESS_KEYS is not configured");
   }
 
@@ -34,22 +35,25 @@ export async function handleUnsplashSearch(args: unknown, env: AppEnv): Promise<
     }
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      headers: {
-        authorization: `Client-ID ${key}`,
-        accept: "application/json"
+  const result = await fetchWithKeyRetry({
+    keys,
+    serviceName: "Unsplash API",
+    makeRequest: (key) => ({
+      url: url.toString(),
+      init: {
+        headers: {
+          authorization: `Client-ID ${key}`,
+          accept: "application/json"
+        }
       }
-    });
-  } catch (error) {
-    return upstreamError(error instanceof Error ? error.message : "Unsplash request failed");
+    })
+  });
+
+  if ("error" in result) {
+    return result;
   }
 
-  const text = await response.text();
-  if (!response.ok) {
-    return upstreamError(`Unsplash API returned ${response.status}: ${text}`, response.status);
-  }
+  const text = result.text;
 
   let json: { results: UnsplashPhoto[] };
   try {

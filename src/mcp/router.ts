@@ -6,8 +6,25 @@ import { toToolResult } from "./result";
 import { findEnabledTool, getEnabledTools } from "./tool-registry";
 import { validateToolArguments } from "./validate";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../tools/external/context7";
+import {
+  handleDomainCheckDomain,
+  handleDomainExploreName,
+  handleDomainListCategories,
+  handleDomainSearchDomains
+} from "../tools/external/domain";
+import {
+  handleNewsGetNews,
+  handleNewsGetNewsDetail,
+  handleNewsGetRegions,
+  handleNewsGetTopics
+} from "../tools/external/news";
 import { handlePuremdExtract } from "../tools/external/puremd";
-import { handleTavilyExtract, handleTavilySearch } from "../tools/external/tavily";
+import {
+  handleTavilyCrawl,
+  handleTavilyExtract,
+  handleTavilyResearch,
+  handleTavilySearch
+} from "../tools/external/tavily";
 import { handleUnsplashSearch } from "../tools/external/unsplash";
 import { handleBase64Decode, handleBase64Encode } from "../tools/devutils/base64";
 import { handleHash } from "../tools/devutils/hash";
@@ -37,7 +54,9 @@ export async function handleJsonRpc(
     case "initialize":
       return jsonRpcResult(request.id ?? null, initializeResult());
     case "tools/list":
-      return jsonRpcResult(request.id ?? null, { tools: getEnabledTools(env) });
+      return jsonRpcResult(request.id ?? null, {
+        tools: getEnabledTools(env, { disabledTools: getDisabledTools(originalRequest) })
+      });
     case "tools/call": {
       const params = request.params;
       if (!params || typeof params !== "object") {
@@ -68,6 +87,14 @@ export async function handleJsonRpc(
   }
 }
 
+function getDisabledTools(request: Request): string[] {
+  return new URL(request.url).searchParams
+    .get("disable")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean) ?? [];
+}
+
 async function dispatchTool(name: string, args: unknown, context: ToolContext) {
   switch (name) {
     case "weather":
@@ -84,6 +111,10 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleTavilySearch(args, context.env);
     case "tavily.extract":
       return handleTavilyExtract(args, context.env);
+    case "tavily.crawl":
+      return handleTavilyCrawl(args, context.env);
+    case "tavily.research":
+      return handleTavilyResearch(args, context.env);
     case "context7.resolve-library-id":
       return handleContext7Resolve(args, context.env);
     case "context7.query-docs":
@@ -92,6 +123,22 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleUnsplashSearch(args, context.env);
     case "puremd.extract":
       return handlePuremdExtract(args, context.env);
+    case "news.get_news":
+      return handleNewsGetNews(args, context.env);
+    case "news.get_news_detail":
+      return handleNewsGetNewsDetail(args, context.env);
+    case "news.get_topics":
+      return handleNewsGetTopics(args, context.env);
+    case "news.get_regions":
+      return handleNewsGetRegions(args, context.env);
+    case "domain.check_domain":
+      return handleDomainCheckDomain(args, context.env);
+    case "domain.explore_name":
+      return handleDomainExploreName(args, context.env);
+    case "domain.search_domains":
+      return handleDomainSearchDomains(args, context.env);
+    case "domain.list_categories":
+      return handleDomainListCategories(args, context.env);
     case "devutils.base64_encode":
       return handleBase64Encode(args);
     case "devutils.base64_decode":

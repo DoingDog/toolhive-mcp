@@ -1,7 +1,8 @@
 import type { AppEnv } from "../../lib/env";
 import { configError, upstreamError, validationError } from "../../lib/errors";
 import { assertHttpUrl } from "../../lib/http";
-import { parseKeyList, pickRandomKey } from "../../lib/keys";
+import { parseKeyList } from "../../lib/keys";
+import { fetchWithKeyRetry } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
 function headerRecord(value: unknown): Record<string, string> | undefined {
@@ -17,8 +18,8 @@ export async function handlePuremdExtract(args: unknown, env: AppEnv): Promise<T
     return validationError("url must be a string");
   }
 
-  const key = pickRandomKey(parseKeyList(env.PUREMD_API_KEYS));
-  if (!key) {
+  const keys = parseKeyList(env.PUREMD_API_KEYS);
+  if (keys.length === 0) {
     return configError("PUREMD_API_KEYS is not configured");
   }
 
@@ -41,42 +42,44 @@ export async function handlePuremdExtract(args: unknown, env: AppEnv): Promise<T
   }
 
   const pureUrl = `https://pure.md/${target.href.replace(/^https?:\/\//, "")}`;
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${key}`,
-    "x-api-key": key,
-    accept: "text/markdown,text/plain,application/json",
-    ...(forwardedHeaders ?? {})
-  };
-
   const hasStructuredExtraction = typeof input.prompt === "string" || typeof input.schema === "string";
-  const requestInit: RequestInit = {
-    method: hasStructuredExtraction ? "POST" : "GET",
-    headers
-  };
+  const result = await fetchWithKeyRetry({
+    keys,
+    serviceName: "Pure.md",
+    makeRequest: (key) => {
+      const headers: Record<string, string> = {
+        authorization: `Bearer ${key}`,
+        "x-api-key": key,
+        accept: "text/markdown,text/plain,application/json",
+        ...(forwardedHeaders ?? {})
+      };
 
-  if (hasStructuredExtraction) {
-    requestInit.headers = {
-      ...headers,
-      "content-type": "application/json"
-    };
-    requestInit.body = JSON.stringify({
-      prompt: input.prompt,
-      schema: input.schema,
-      format: input.format ?? "markdown"
-    });
+      const requestInit: RequestInit = {
+        method: hasStructuredExtraction ? "POST" : "GET",
+        headers
+      };
+
+      if (hasStructuredExtraction) {
+        requestInit.headers = {
+          ...headers,
+          "content-type": "application/json"
+        };
+        requestInit.body = JSON.stringify({
+          prompt: input.prompt,
+          schema: input.schema,
+          format: input.format ?? "markdown"
+        });
+      }
+
+      return { url: pureUrl, init: requestInit };
+    }
+  });
+
+  if ("error" in result) {
+    return result;
   }
 
-  let response: Response;
-  try {
-    response = await fetch(pureUrl, requestInit);
-  } catch (error) {
-    return upstreamError(error instanceof Error ? error.message : "Pure.md request failed");
-  }
-
-  const content = await response.text();
-  if (!response.ok) {
-    return upstreamError(`Pure.md returned ${response.status}: ${content}`, response.status);
-  }
+  const content = result.text;
 
   return {
     ok: true,

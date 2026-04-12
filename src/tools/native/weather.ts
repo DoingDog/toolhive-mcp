@@ -4,6 +4,7 @@ import type { ToolExecutionResult } from "../../mcp/result";
 
 type WeatherArgs = {
   query?: unknown;
+  location?: unknown;
   format?: unknown;
   lang?: unknown;
   units?: unknown;
@@ -11,9 +12,10 @@ type WeatherArgs = {
 
 export async function handleWeather(args: unknown, _context: ToolContext): Promise<ToolExecutionResult> {
   const weatherArgs = (args ?? {}) as WeatherArgs;
+  const query = weatherArgs.query ?? weatherArgs.location;
 
-  if (typeof weatherArgs.query !== "string" || weatherArgs.query.trim() === "") {
-    return validationError("query must be a non-empty string");
+  if (typeof query !== "string" || query.trim() === "") {
+    return validationError("query or location must be a non-empty string");
   }
 
   const format = weatherArgs.format ?? "json";
@@ -29,7 +31,7 @@ export async function handleWeather(args: unknown, _context: ToolContext): Promi
     return validationError("units must be metric, us, or uk");
   }
 
-  const url = new URL(`https://wttr.in/${encodeURIComponent(weatherArgs.query)}`);
+  const url = new URL(`https://wttr.in/${encodeURIComponent(query)}`);
   url.searchParams.set("format", format === "json" ? "j1" : "T");
   if (weatherArgs.lang) {
     url.searchParams.set("lang", weatherArgs.lang);

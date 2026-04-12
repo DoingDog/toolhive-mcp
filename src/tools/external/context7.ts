@@ -1,49 +1,60 @@
 import type { AppEnv } from "../../lib/env";
 import { configError, upstreamError, validationError } from "../../lib/errors";
-import { parseKeyList, pickRandomKey } from "../../lib/keys";
+import { parseKeyList } from "../../lib/keys";
+import { fetchWithKeyRetry } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
 async function callContext7(method: string, params: unknown, env: AppEnv): Promise<ToolExecutionResult> {
-  const key = pickRandomKey(parseKeyList(env.CONTEXT7_API_KEYS));
-  if (!key) {
+  const keys = parseKeyList(env.CONTEXT7_API_KEYS);
+  if (keys.length === 0) {
     return configError("CONTEXT7_API_KEYS is not configured");
   }
 
-  let response: Response;
-  try {
-    response = await fetch("https://mcp.context7.com/mcp", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        CONTEXT7_API_KEY: key,
-        authorization: `Bearer ${key}`
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: method,
-          arguments: params
-        }
-      })
-    });
-  } catch (error) {
-    return upstreamError(error instanceof Error ? error.message : "Context7 request failed");
+  const result = await fetchWithKeyRetry({
+    keys,
+    serviceName: "Context7 MCP",
+    makeRequest: (key) => ({
+      url: "https://mcp.context7.com/mcp",
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          CONTEXT7_API_KEY: key,
+          authorization: `Bearer ${key}`
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: method,
+            arguments: params
+          }
+        })
+      }
+    })
+  });
+
+  if ("error" in result) {
+    return result;
   }
 
-  const text = await response.text();
-  if (!response.ok) {
-    return upstreamError(`Context7 MCP returned ${response.status}: ${text}`, response.status);
-  }
-
-  if (!text) {
+  if (!result.text) {
     return { ok: true, data: {} };
   }
 
   try {
-    const parsed = JSON.parse(text) as { result?: unknown };
+    const parsed = JSON.parse(result.text) as {
+      result?: unknown;
+      error?: { message?: unknown };
+    };
+    if (parsed.error) {
+      const message = typeof parsed.error.message === "string"
+        ? parsed.error.message
+        : "unknown error";
+      return upstreamError(`Context7 MCP returned JSON-RPC error: ${message}`);
+    }
     return { ok: true, data: parsed.result ?? parsed };
   } catch {
     return upstreamError("Context7 MCP returned invalid JSON");

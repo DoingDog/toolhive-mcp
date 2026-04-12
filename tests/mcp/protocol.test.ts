@@ -73,7 +73,77 @@ describe("MCP protocol", () => {
     });
   });
 
-  it("rejects tools/call arguments that violate declared schema", async () => {
+  it("filters tavily tools from tools/list for the current request only", async () => {
+    const env = { TAVILY_API_KEYS: "tvly-a" };
+
+    const defaultResponse = await worker.fetch(
+      new Request("https://example.com/mcp", jsonRpcRequest("tools/list", {})),
+      env,
+      ctx
+    );
+    const defaultBody = (await defaultResponse.json()) as { result: { tools: { name: string }[] } };
+    const defaultNames = defaultBody.result.tools.map((tool) => tool.name);
+
+    const disabledResponse = await worker.fetch(
+      new Request("https://example.com/mcp?disable=tavily.*", jsonRpcRequest("tools/list", {})),
+      env,
+      ctx
+    );
+    const disabledBody = (await disabledResponse.json()) as { result: { tools: { name: string }[] } };
+    const disabledNames = disabledBody.result.tools.map((tool) => tool.name);
+
+    expect(defaultNames).toContain("tavily.search");
+    expect(disabledNames).not.toContain("tavily.search");
+    expect(disabledNames).not.toContain("tavily.extract");
+  });
+
+  it("filters only the specified tools from tools/list", async () => {
+    const env = { TAVILY_API_KEYS: "tvly-a" };
+    const response = await worker.fetch(
+      new Request("https://example.com/mcp?disable=tavily.search,calc", jsonRpcRequest("tools/list", {})),
+      env,
+      ctx
+    );
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    const names = body.result.tools.map((tool) => tool.name);
+
+    expect(names).not.toContain("calc");
+    expect(names).not.toContain("tavily.search");
+    expect(names).toContain("tavily.extract");
+    expect(names).toContain("weather");
+  });
+
+  it("does not let URL filtering affect tools/call", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp?disable=calc",
+        jsonRpcRequest("tools/call", {
+          name: "calc",
+          arguments: {}
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("expression, expr, or input")
+          }
+        ]
+      }
+    });
+  });
+
+  it("returns a repairable tool error when calc arguments are missing", async () => {
     const response = await call(
       "/mcp",
       jsonRpcRequest("tools/call", {
@@ -84,12 +154,17 @@ describe("MCP protocol", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       jsonrpc: "2.0",
       id: 1,
-      error: {
-        code: -32602,
-        message: "Invalid params"
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("expression, expr, or input")
+          }
+        ]
       }
     });
   });

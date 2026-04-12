@@ -48,6 +48,34 @@ describe("native tools", () => {
     });
   });
 
+  it("calc accepts expr alias", async () => {
+    const result = await handleCalc({ expr: "2+2" }, context);
+
+    expect(result).toEqual({
+      ok: true,
+      data: { result: 4 }
+    });
+  });
+
+  it("calc accepts input alias", async () => {
+    const result = await handleCalc({ input: "2+2" }, context);
+
+    expect(result).toEqual({
+      ok: true,
+      data: { result: 4 }
+    });
+  });
+
+  it("calc reports a repairable missing-expression error", async () => {
+    const result = await handleCalc({}, context);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe("validation_error");
+      expect(result.error.message).toContain("expression, expr, or input");
+    }
+  });
+
   it("calc rejects unsafe expressions", async () => {
     const result = await handleCalc({ expression: "process.exit()" }, context);
 
@@ -177,6 +205,36 @@ describe("native tools", () => {
     });
   });
 
+  it("weather accepts location alias", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"18"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ location: "Tokyo" }, context);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Tokyo?format=j1");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        current_condition: [{ temp_C: "18" }]
+      }
+    });
+  });
+
+  it("weather reports a repairable missing-query error", async () => {
+    const result = await handleWeather({}, context);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe("validation_error");
+      expect(result.error.message).toContain("query or location");
+    }
+  });
+
   it("ip reads cf-connecting-ip from request headers", async () => {
     const request = new Request("https://example.com/mcp", {
       method: "POST",
@@ -242,5 +300,140 @@ describe("native tools", () => {
         ]
       }
     });
+  });
+
+  it("router allows weather location alias through schema validation", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"18"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "weather",
+          arguments: {
+            location: "Tokyo"
+          }
+        }
+      },
+      {},
+      context.request
+    );
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Tokyo?format=j1");
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("temp_C")
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+  });
+
+  it("router allows calc expr alias through schema validation", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "calc",
+          arguments: {
+            expr: "2+2"
+          }
+        }
+      },
+      {},
+      context.request
+    );
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("4")
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+  });
+
+  it("router returns weather handler error for missing query aliases", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "weather",
+          arguments: {}
+        }
+      },
+      {},
+      context.request
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("query or location")
+          }
+        ]
+      }
+    });
+    expect(body).not.toHaveProperty("error");
+  });
+
+  it("router returns calc handler error for missing expression aliases", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "calc",
+          arguments: {}
+        }
+      },
+      {},
+      context.request
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("expression, expr, or input")
+          }
+        ]
+      }
+    });
+    expect(body).not.toHaveProperty("error");
   });
 });
