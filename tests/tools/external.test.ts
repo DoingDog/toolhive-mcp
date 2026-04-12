@@ -25,6 +25,23 @@ describe("Tavily HTTP API tools", () => {
     );
   });
 
+  it("returns upstream_error when Tavily returns invalid JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })));
+
+    const result = await handleTavilySearch(
+      { query: "mcp", max_results: 3 },
+      { TAVILY_API_KEYS: "tvly-test" }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "Tavily API returned invalid JSON"
+      })
+    });
+  });
+
   it("posts extract requests to Tavily HTTP API", async () => {
     const fetchMock = vi.fn(async () => Response.json({ results: [], failed_results: [] }));
     vi.stubGlobal("fetch", fetchMock);

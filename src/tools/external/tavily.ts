@@ -32,7 +32,15 @@ async function postTavily(endpoint: "search" | "extract", body: unknown, env: Ap
     return upstreamError(`Tavily API returned ${response.status}: ${text}`, response.status);
   }
 
-  return { ok: true, data: text ? JSON.parse(text) as unknown : {} };
+  if (!text) {
+    return { ok: true, data: {} };
+  }
+
+  try {
+    return { ok: true, data: JSON.parse(text) as unknown };
+  } catch {
+    return upstreamError("Tavily API returned invalid JSON");
+  }
 }
 
 export async function handleTavilySearch(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
