@@ -26,7 +26,9 @@ function isWebfetchFormat(value: unknown): value is WebfetchFormat {
 }
 
 function isHtmlResponse(contentType: string | null): boolean {
-  return contentType?.toLowerCase().includes("text/html") ?? false;
+  const normalizedContentType = contentType?.toLowerCase();
+  return normalizedContentType?.includes("text/html") === true
+    || normalizedContentType?.includes("application/xhtml+xml") === true;
 }
 
 function extractHtmlText(html: string): string {

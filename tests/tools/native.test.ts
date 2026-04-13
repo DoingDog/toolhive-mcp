@@ -180,6 +180,40 @@ describe("native tools", () => {
     }
   });
 
+  it("webfetch treats XHTML responses as HTML for markdown conversion", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<article><h1>Hello</h1><p>XHTML</p></article>", {
+          status: 200,
+          headers: { "content-type": "application/xhtml+xml; charset=utf-8" }
+        })
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/xhtml",
+        format: "markdown"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/xhtml",
+        body: expect.stringContaining("# Hello")
+      }
+    });
+    if (result.ok) {
+      expect(result.data).toMatchObject({
+        body: expect.stringContaining("XHTML")
+      });
+    }
+  });
+
   it("webfetch converts HTML to readable text when requested", async () => {
     vi.stubGlobal(
       "fetch",
