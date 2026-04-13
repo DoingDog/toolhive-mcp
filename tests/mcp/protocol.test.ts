@@ -304,6 +304,50 @@ describe("MCP protocol", () => {
     });
   });
 
+  it("routes webfetch tools/call requests with format through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("<article><h1>Hello</h1><p>World</p></article>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "webfetch",
+          arguments: {
+            url: "https://example.com/post",
+            format: "markdown"
+          }
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/post",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"body": "# Hello\\n\\nWorld"')
+          }
+        ]
+      }
+    });
+  });
+
   it("does not expose any domain tools from tools/list", async () => {
     const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
     const body = (await response.json()) as { result: { tools: { name: string }[] } };
