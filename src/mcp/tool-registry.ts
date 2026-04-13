@@ -119,9 +119,10 @@ const externalToolConfigs: ExternalToolConfig[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Package or library name to resolve" }
+        query: { type: "string", description: "Package or library name to resolve" },
+        libraryName: { type: "string", description: "Alias for query. Package or library name to resolve" },
+        library_name: { type: "string", description: "Alias for query. Package or library name to resolve" }
       },
-      required: ["query"],
       additionalProperties: false
     }
   },

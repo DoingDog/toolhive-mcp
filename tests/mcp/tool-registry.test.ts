@@ -183,9 +183,11 @@ describe("tool registry", () => {
     expect(names).toContain("news_get_regions");
 
     expect(context7Resolve?.inputSchema.properties).toMatchObject({
-      query: { type: "string" }
+      query: { type: "string" },
+      libraryName: { type: "string" },
+      library_name: { type: "string" }
     });
-    expect(context7Resolve?.inputSchema.required).toEqual(["query"]);
+    expect(context7Resolve?.inputSchema.required).toBeUndefined();
     expect(context7Query?.inputSchema.required).toEqual(["libraryId", "query"]);
 
     expect(tavilySearch?.inputSchema.properties).toHaveProperty("search_depth");

@@ -287,6 +287,45 @@ describe("MCP protocol", () => {
     });
   });
 
+  it("accepts libraryName for context7 resolve through JSON-RPC tools/call", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "context7_resolve-library-id",
+          arguments: { libraryName: "react" }
+        })
+      ),
+      { CONTEXT7_API_KEYS: "ctx-test" },
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text"
+          }
+        ]
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://mcp.context7.com/mcp",
+      expect.objectContaining({ method: "POST" })
+    );
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    const payload = JSON.parse(String(init.body));
+    expect(payload.params.arguments).toEqual({ query: "react", libraryName: "react" });
+  });
+
   it("exposes the webfetch format enum through tools/list", async () => {
     const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
     const body = (await response.json()) as {

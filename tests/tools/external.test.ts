@@ -1000,7 +1000,7 @@ describe("Context7 tool", () => {
     );
   });
 
-  it("maps resolve query to Context7 libraryName", async () => {
+  it("accepts query alone for Context7 resolve", async () => {
     const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1014,6 +1014,69 @@ describe("Context7 tool", () => {
     const [, init] = calls[0]!;
     const body = JSON.parse(String(init.body));
     expect(body.params.arguments).toEqual({ query: "react", libraryName: "react" });
+  });
+
+  it("accepts libraryName alone for Context7 resolve", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleContext7Resolve(
+      { libraryName: "react" },
+      { CONTEXT7_API_KEYS: "ctx-test" }
+    );
+
+    expect(result.ok).toBe(true);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    const body = JSON.parse(String(init.body));
+    expect(body.params.arguments).toEqual({ query: "react", libraryName: "react" });
+  });
+
+  it("accepts library_name alone for Context7 resolve", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleContext7Resolve(
+      { library_name: "react" },
+      { CONTEXT7_API_KEYS: "ctx-test" }
+    );
+
+    expect(result.ok).toBe(true);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    const body = JSON.parse(String(init.body));
+    expect(body.params.arguments).toEqual({ query: "react", libraryName: "react" });
+  });
+
+  it("prefers libraryName over conflicting query for Context7 resolve", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleContext7Resolve(
+      { query: "vue", libraryName: "react", library_name: "svelte" },
+      { CONTEXT7_API_KEYS: "ctx-test" }
+    );
+
+    expect(result.ok).toBe(true);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    const body = JSON.parse(String(init.body));
+    expect(body.params.arguments).toEqual({ query: "react", libraryName: "react" });
+  });
+
+  it("returns targeted validation error when Context7 resolve aliases are missing", async () => {
+    const result = await handleContext7Resolve(
+      {},
+      { CONTEXT7_API_KEYS: "ctx-test" }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "validation_error",
+        message: "one of libraryName, library_name, or query must be a string"
+      })
+    });
   });
 
   it("returns upstream_error when Context7 responds with a JSON-RPC error body", async () => {

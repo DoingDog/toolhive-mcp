@@ -62,12 +62,20 @@ async function callContext7(method: string, params: unknown, env: AppEnv): Promi
 }
 
 export async function handleContext7Resolve(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
-  const input = args as { query?: unknown; libraryName?: unknown } | undefined;
-  const query = typeof input?.query === "string" ? input.query : input?.libraryName;
-  if (typeof query !== "string") {
-    return validationError("query must be a string");
+  const input = args as { query?: unknown; libraryName?: unknown; library_name?: unknown } | undefined;
+  const normalized = typeof input?.libraryName === "string"
+    ? input.libraryName
+    : typeof input?.library_name === "string"
+      ? input.library_name
+      : typeof input?.query === "string"
+        ? input.query
+        : undefined;
+
+  if (typeof normalized !== "string") {
+    return validationError("one of libraryName, library_name, or query must be a string");
   }
-  return callContext7("resolve-library-id", { query, libraryName: query }, env);
+
+  return callContext7("resolve-library-id", { query: normalized, libraryName: normalized }, env);
 }
 
 export async function handleContext7QueryDocs(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
