@@ -241,6 +241,37 @@ const externalToolConfigs: ExternalToolConfig[] = [
     }
   },
   {
+    legacyName: "exa.search",
+    description: "Search the web with Exa curated synchronous search",
+    requiresEnv: "EXA_API_KEYS",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        limit: { type: "integer", minimum: 1 },
+        search_type: { type: "string" },
+        category: { type: "string" },
+        include_domains: { type: "array", items: { type: "string" } },
+        exclude_domains: { type: "array", items: { type: "string" } },
+        start_published_date: { type: "string" },
+        end_published_date: { type: "string" },
+        start_crawl_date: { type: "string" },
+        end_crawl_date: { type: "string" },
+        include_text: { type: "boolean" },
+        text_max_characters: { type: "integer", minimum: 1 },
+        include_highlights: { type: "boolean" },
+        highlights_max_characters: { type: "integer", minimum: 1 },
+        include_summary: { type: "boolean" },
+        summary_query: { type: "string" },
+        livecrawl: { type: "string" },
+        moderation: {},
+        user_location: { type: "object" }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
     legacyName: "news.get_news",
     description: "Get recent news items from newsmcp",
     inputSchema: {

@@ -9,7 +9,7 @@ export type ToolDefinition = {
   name: string;
   description: string;
   inputSchema: JsonSchema;
-  requiresEnv?: "CONTEXT7_API_KEYS" | "TAVILY_API_KEYS" | "UNSPLASH_ACCESS_KEYS" | "PUREMD_API_KEYS";
+  requiresEnv?: "CONTEXT7_API_KEYS" | "TAVILY_API_KEYS" | "UNSPLASH_ACCESS_KEYS" | "PUREMD_API_KEYS" | "EXA_API_KEYS";
 };
 
 export const emptyObjectSchema: JsonSchema = {

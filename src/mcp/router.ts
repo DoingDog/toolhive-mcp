@@ -12,6 +12,7 @@ import {
   handleDomainListCategories,
   handleDomainSearchDomains
 } from "../tools/external/domain";
+import { handleExaSearch } from "../tools/external/exa";
 import { handleIpLookup } from "../tools/external/iplookup";
 import {
   handleNewsGetNews,
@@ -123,6 +124,8 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleUnsplashSearch(args, context.env);
     case "puremd_extract":
       return handlePuremdExtract(args, context.env);
+    case "exa_search":
+      return handleExaSearch(args, context.env);
     case "news_get_news":
       return handleNewsGetNews(args, context.env);
     case "news_get_news_detail":

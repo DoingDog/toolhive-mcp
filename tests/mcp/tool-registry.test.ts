@@ -142,6 +142,7 @@ describe("tool registry", () => {
 
     expect(names).not.toContain("tavily_search");
     expect(names).not.toContain("context7_query-docs");
+    expect(names).not.toContain("exa_search");
   });
 
   it("includes external tools when matching env keys are present with canonical names", () => {
@@ -149,7 +150,8 @@ describe("tool registry", () => {
       TAVILY_API_KEYS: "t1,t2",
       CONTEXT7_API_KEYS: "c1,c2",
       UNSPLASH_ACCESS_KEYS: "u1",
-      PUREMD_API_KEYS: "p1"
+      PUREMD_API_KEYS: "p1",
+      EXA_API_KEYS: "e1,e2"
     });
     const names = tools.map((tool) => tool.name);
     const context7Resolve = tools.find((tool) => tool.name === "context7_resolve-library-id");
@@ -159,6 +161,7 @@ describe("tool registry", () => {
     const tavilyCrawl = tools.find((tool) => tool.name === "tavily_crawl");
     const unsplash = tools.find((tool) => tool.name === "unsplash_search_photos");
     const puremd = tools.find((tool) => tool.name === "puremd_extract");
+    const exaSearch = tools.find((tool) => tool.name === "exa_search");
     const newsGetNews = tools.find((tool) => tool.name === "news_get_news");
     const newsGetNewsDetail = tools.find((tool) => tool.name === "news_get_news_detail");
     const newsGetTopics = tools.find((tool) => tool.name === "news_get_topics");
@@ -172,6 +175,7 @@ describe("tool registry", () => {
     expect(names).toContain("context7_query-docs");
     expect(names).toContain("unsplash_search_photos");
     expect(names).toContain("puremd_extract");
+    expect(names).toContain("exa_search");
     expect(names).toContain("news_get_news");
     expect(names).toContain("news_get_news_detail");
     expect(names).toContain("news_get_topics");
@@ -195,6 +199,13 @@ describe("tool registry", () => {
 
     expect(puremd?.inputSchema.properties).toHaveProperty("requestheaders");
     expect(puremd?.inputSchema.properties).toHaveProperty("schema");
+
+    expect(exaSearch?.inputSchema.required).toEqual(["query"]);
+    expect(exaSearch?.inputSchema.properties).toHaveProperty("limit");
+    expect(exaSearch?.inputSchema.properties).toHaveProperty("search_type");
+    expect(exaSearch?.inputSchema.properties).toHaveProperty("include_summary");
+    expect(exaSearch?.inputSchema.properties).toHaveProperty("summary_query");
+    expect(exaSearch?.inputSchema.properties).toHaveProperty("user_location");
 
     expect(newsGetNews?.inputSchema.properties).toHaveProperty("topics");
     expect(newsGetNews?.inputSchema.properties).toHaveProperty("order_by");

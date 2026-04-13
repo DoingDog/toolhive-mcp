@@ -14,6 +14,7 @@ import {
   handleNewsGetRegions,
   handleNewsGetTopics
 } from "../../src/tools/external/news";
+import { handleExaSearch } from "../../src/tools/external/exa";
 import { handlePuremdExtract } from "../../src/tools/external/puremd";
 import {
   handleTavilyCrawl,
@@ -163,6 +164,194 @@ describe("IP lookup tool", () => {
         }
       })
     });
+  });
+});
+
+describe("Exa HTTP API tool", () => {
+  it("returns config_error when Exa keys are missing", async () => {
+    const result = await handleExaSearch({ query: "mcp" }, {});
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "config_error",
+        message: "EXA_API_KEYS is not configured"
+      })
+    });
+  });
+
+  it("maps Exa request and response fields", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        requestId: "req_123",
+        results: [
+          {
+            id: "res_1",
+            title: "Example result",
+            url: "https://example.com/article",
+            publishedDate: "2026-04-10T00:00:00.000Z",
+            author: "Author",
+            score: 0.98,
+            text: "article text",
+            highlights: ["highlight 1"],
+            summary: "short summary",
+            image: "https://example.com/image.jpg",
+            favicon: "https://example.com/favicon.ico"
+          }
+        ],
+        autopromptString: "exa raw"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleExaSearch(
+      {
+        query: "mcp",
+        limit: 5,
+        search_type: "keyword",
+        category: "research paper",
+        include_domains: ["example.com"],
+        exclude_domains: ["excluded.com"],
+        start_published_date: "2026-04-01T00:00:00.000Z",
+        end_published_date: "2026-04-30T23:59:59.000Z",
+        start_crawl_date: "2026-04-02T00:00:00.000Z",
+        end_crawl_date: "2026-04-28T23:59:59.000Z",
+        include_text: true,
+        text_max_characters: 1200,
+        include_highlights: true,
+        highlights_max_characters: 240,
+        include_summary: true,
+        summary_query: "summarize key findings",
+        livecrawl: "always",
+        moderation: true,
+        user_location: {
+          country: "US",
+          city: "San Francisco",
+          region: "California",
+          timezone: "America/Los_Angeles"
+        }
+      },
+      { EXA_API_KEYS: "exa-test" }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        request_id: "req_123",
+        results: [
+          {
+            id: "res_1",
+            title: "Example result",
+            url: "https://example.com/article",
+            published_date: "2026-04-10T00:00:00.000Z",
+            author: "Author",
+            score: 0.98,
+            text: "article text",
+            highlights: ["highlight 1"],
+            summary: "short summary",
+            image: "https://example.com/image.jpg",
+            favicon: "https://example.com/favicon.ico"
+          }
+        ],
+        raw: {
+          requestId: "req_123",
+          results: [
+            {
+              id: "res_1",
+              title: "Example result",
+              url: "https://example.com/article",
+              publishedDate: "2026-04-10T00:00:00.000Z",
+              author: "Author",
+              score: 0.98,
+              text: "article text",
+              highlights: ["highlight 1"],
+              summary: "short summary",
+              image: "https://example.com/image.jpg",
+              favicon: "https://example.com/favicon.ico"
+            }
+          ],
+          autopromptString: "exa raw"
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.exa.ai/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+          "x-api-key": "exa-test"
+        })
+      })
+    );
+
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [, init] = calls[0]!;
+    expect(JSON.parse(String(init.body))).toEqual({
+      query: "mcp",
+      numResults: 5,
+      type: "keyword",
+      category: "research paper",
+      includeDomains: ["example.com"],
+      excludeDomains: ["excluded.com"],
+      startPublishedDate: "2026-04-01T00:00:00.000Z",
+      endPublishedDate: "2026-04-30T23:59:59.000Z",
+      startCrawlDate: "2026-04-02T00:00:00.000Z",
+      endCrawlDate: "2026-04-28T23:59:59.000Z",
+      contents: {
+        text: { maxCharacters: 1200 },
+        highlights: { maxCharacters: 240 },
+        summary: { query: "summarize key findings" },
+        livecrawl: "always"
+      },
+      moderation: true,
+      userLocation: {
+        country: "US",
+        city: "San Francisco",
+        region: "California",
+        timezone: "America/Los_Angeles"
+      }
+    });
+  });
+
+  it("rotates Exa keys after an unauthorized response and succeeds on retry", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+      .mockResolvedValueOnce(Response.json({ requestId: "req_456", results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    const result = await handleExaSearch(
+      { query: "mcp" },
+      { EXA_API_KEYS: "exa-first,exa-second" }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        request_id: "req_456",
+        results: [],
+        raw: {
+          requestId: "req_456",
+          results: []
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.exa.ai/search",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-api-key": "exa-first" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.exa.ai/search",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-api-key": "exa-second" })
+      })
+    );
   });
 });
 
