@@ -17,13 +17,15 @@ Running MCP tools behind a single hosted endpoint is useful when you want:
 
 Current release capabilities:
 
-- Native tools: `weather`, `webfetch`, `calc`, `time`, `ip`
+- Native tools: `weather`, `webfetch`, `calc`, `time`, `whoami`, `iplookup`
 - Context7 tools: `context7_resolve-library-id`, `context7_query-docs`
-- Tavily tools: `tavily_search`, `tavily_extract`, `tavily_crawl`, `tavily_research`
+- Tavily tools: `tavily_search`, `tavily_extract`, `tavily_crawl`
+- Exa tool: `exa_search`
 - Unsplash tool: `unsplash_search_photos`
 - Pure.md tool: `puremd_extract`
 - Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
 - Env-gated tool exposure: integrations only appear when the corresponding secrets are configured
+- `iplookup` uses the free `ip-api.com/json` endpoint, so it inherits that service's transport and rate-limit constraints
 - Single HTTP MCP endpoint exposed at `/mcp`
 
 ## Endpoint
@@ -56,6 +58,7 @@ Third-party tools are enabled by Cloudflare secrets. Set only the providers you 
 ```bash
 npx wrangler secret put TAVILY_API_KEYS
 npx wrangler secret put CONTEXT7_API_KEYS
+npx wrangler secret put EXA_API_KEYS
 npx wrangler secret put UNSPLASH_ACCESS_KEYS
 npx wrangler secret put PUREMD_API_KEYS
 ```
