@@ -156,7 +156,6 @@ describe("tool registry", () => {
     const tavilySearch = tools.find((tool) => tool.name === "tavily_search");
     const tavilyExtract = tools.find((tool) => tool.name === "tavily_extract");
     const tavilyCrawl = tools.find((tool) => tool.name === "tavily_crawl");
-    const tavilyResearch = tools.find((tool) => tool.name === "tavily_research");
     const unsplash = tools.find((tool) => tool.name === "unsplash_search_photos");
     const puremd = tools.find((tool) => tool.name === "puremd_extract");
     const newsGetNews = tools.find((tool) => tool.name === "news_get_news");
@@ -167,7 +166,7 @@ describe("tool registry", () => {
     expect(names).toContain("tavily_search");
     expect(names).toContain("tavily_extract");
     expect(names).toContain("tavily_crawl");
-    expect(names).toContain("tavily_research");
+    expect(names).not.toContain("tavily_research");
     expect(names).toContain("context7_resolve-library-id");
     expect(names).toContain("context7_query-docs");
     expect(names).toContain("unsplash_search_photos");
@@ -189,8 +188,6 @@ describe("tool registry", () => {
     expect(tavilyExtract?.inputSchema.properties).toHaveProperty("include_favicon");
     expect(tavilyCrawl?.inputSchema.properties).toHaveProperty("url");
     expect(tavilyCrawl?.inputSchema.properties).toHaveProperty("exclude_domains");
-    expect(tavilyResearch?.inputSchema.properties).toHaveProperty("input");
-    expect(tavilyResearch?.inputSchema.properties).toHaveProperty("output_schema");
 
     expect(unsplash?.inputSchema.properties).toHaveProperty("per_page");
     expect(unsplash?.inputSchema.properties).toHaveProperty("order_by");
@@ -239,7 +236,6 @@ describe("tool registry", () => {
     expect(names).not.toContain("tavily_search");
     expect(names).not.toContain("tavily_extract");
     expect(names).not.toContain("tavily_crawl");
-    expect(names).not.toContain("tavily_research");
     expect(names).toContain("weather");
   });
 
@@ -267,7 +263,7 @@ describe("tool registry", () => {
     expect(withoutEnvNames).not.toContain("domain_list_categories");
     expect(withEnvNames).toContain("tavily_search");
     expect(withEnvNames).toContain("tavily_crawl");
-    expect(withEnvNames).toContain("tavily_research");
+    expect(withEnvNames).not.toContain("tavily_research");
     expect(withEnvNames).toContain("news_get_news");
     expect(withEnvNames).toContain("news_get_news_detail");
     expect(withEnvNames).toContain("news_get_topics");

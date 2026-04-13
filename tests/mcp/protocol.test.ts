@@ -73,7 +73,7 @@ describe("MCP protocol", () => {
     });
   });
 
-  it("filters tavily tools from tools/list for the current request only while returning canonical names", async () => {
+  it("filters tavily_research from tools/list for the current request only while returning canonical names", async () => {
     const env = { TAVILY_API_KEYS: "tvly-a" };
 
     const defaultResponse = await worker.fetch(
@@ -93,8 +93,10 @@ describe("MCP protocol", () => {
     const disabledNames = disabledBody.result.tools.map((tool) => tool.name);
 
     expect(defaultNames).toContain("tavily_search");
+    expect(defaultNames).not.toContain("tavily_research");
     expect(disabledNames).not.toContain("tavily_search");
     expect(disabledNames).not.toContain("tavily_extract");
+    expect(disabledNames).not.toContain("tavily_research");
   });
 
   it("filters only the specified tools from tools/list while accepting legacy disable names", async () => {

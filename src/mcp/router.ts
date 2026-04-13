@@ -22,7 +22,6 @@ import { handlePuremdExtract } from "../tools/external/puremd";
 import {
   handleTavilyCrawl,
   handleTavilyExtract,
-  handleTavilyResearch,
   handleTavilySearch
 } from "../tools/external/tavily";
 import { handleUnsplashSearch } from "../tools/external/unsplash";
@@ -113,8 +112,6 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleTavilyExtract(args, context.env);
     case "tavily_crawl":
       return handleTavilyCrawl(args, context.env);
-    case "tavily_research":
-      return handleTavilyResearch(args, context.env);
     case "context7_resolve-library-id":
       return handleContext7Resolve(args, context.env);
     case "context7_query-docs":

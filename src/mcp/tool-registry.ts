@@ -188,23 +188,6 @@ const externalToolConfigs: ExternalToolConfig[] = [
     }
   },
   {
-    legacyName: "tavily.research",
-    description: "Perform deep research with Tavily",
-    requiresEnv: "TAVILY_API_KEYS",
-    inputSchema: {
-      type: "object",
-      properties: {
-        input: { type: "string", description: "Research task description" },
-        model: { type: "string" },
-        stream: { type: "boolean" },
-        output_schema: {},
-        citation_format: { type: "string" }
-      },
-      required: ["input"],
-      additionalProperties: false
-    }
-  },
-  {
     legacyName: "unsplash.search_photos",
     description: "Search Unsplash photos",
     requiresEnv: "UNSPLASH_ACCESS_KEYS",
