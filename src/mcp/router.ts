@@ -12,6 +12,7 @@ import {
   handleDomainListCategories,
   handleDomainSearchDomains
 } from "../tools/external/domain";
+import { handleIpLookup } from "../tools/external/iplookup";
 import {
   handleNewsGetNews,
   handleNewsGetNewsDetail,
@@ -106,6 +107,8 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleTime(args, context);
     case "whoami":
       return handleWhoami(args, context);
+    case "iplookup":
+      return handleIpLookup(args);
     case "tavily_search":
       return handleTavilySearch(args, context.env);
     case "tavily_extract":

@@ -7,6 +7,7 @@ import {
   handleDomainListCategories,
   handleDomainSearchDomains
 } from "../../src/tools/external/domain";
+import { handleIpLookup } from "../../src/tools/external/iplookup";
 import {
   handleNewsGetNews,
   handleNewsGetNewsDetail,
@@ -24,6 +25,145 @@ import { handleUnsplashSearch } from "../../src/tools/external/unsplash";
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("IP lookup tool", () => {
+  it("returns curated fields and raw data on success", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        status: "success",
+        query: "1.1.1.1",
+        country: "Australia",
+        countryCode: "AU",
+        region: "QLD",
+        regionName: "Queensland",
+        city: "South Brisbane",
+        timezone: "Australia/Brisbane",
+        lat: -27.4748,
+        lon: 153.017,
+        zip: "4101",
+        isp: "APNIC and Cloudflare DNS Resolver project",
+        org: "Cloudflare",
+        as: "AS13335 Cloudflare, Inc.",
+        asname: "CLOUDFLARENET",
+        mobile: false,
+        proxy: false,
+        hosting: true
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleIpLookup({ query: "1.1.1.1" });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        query: "1.1.1.1",
+        ip: "1.1.1.1",
+        country: "Australia",
+        country_code: "AU",
+        region: "Queensland",
+        region_code: "QLD",
+        city: "South Brisbane",
+        timezone: "Australia/Brisbane",
+        lat: -27.4748,
+        lon: 153.017,
+        zip: "4101",
+        isp: "APNIC and Cloudflare DNS Resolver project",
+        org: "Cloudflare",
+        as: "AS13335 Cloudflare, Inc.",
+        asname: "CLOUDFLARENET",
+        mobile: false,
+        proxy: false,
+        hosting: true,
+        raw: {
+          status: "success",
+          query: "1.1.1.1",
+          country: "Australia",
+          countryCode: "AU",
+          region: "QLD",
+          regionName: "Queensland",
+          city: "South Brisbane",
+          timezone: "Australia/Brisbane",
+          lat: -27.4748,
+          lon: 153.017,
+          zip: "4101",
+          isp: "APNIC and Cloudflare DNS Resolver project",
+          org: "Cloudflare",
+          as: "AS13335 Cloudflare, Inc.",
+          asname: "CLOUDFLARENET",
+          mobile: false,
+          proxy: false,
+          hosting: true
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://ip-api.com/json/1.1.1.1?fields=55312383"
+    );
+  });
+
+  it("returns validation_error when upstream reports a failed lookup", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          status: "fail",
+          message: "invalid query",
+          query: "bad ip"
+        })
+      )
+    );
+
+    const result = await handleIpLookup({ query: "bad ip" });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "validation_error",
+        message: "IP lookup failed: invalid query",
+        details: {
+          upstream: {
+            status: "fail",
+            message: "invalid query",
+            query: "bad ip"
+          }
+        }
+      })
+    });
+  });
+
+  it("returns upstream_error with rate limit details on 429", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("too many requests", {
+          status: 429,
+          headers: {
+            "X-Rl": "0",
+            "X-Ttl": "56"
+          }
+        })
+      )
+    );
+
+    const result = await handleIpLookup({ query: "1.1.1.1" });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "IP-API rate limit exceeded (X-Rl=0, X-Ttl=56): too many requests",
+        details: {
+          status: 429,
+          details: {
+            rateLimitRemaining: "0",
+            rateLimitResetSeconds: "56"
+          }
+        }
+      })
+    });
+  });
 });
 
 describe("Tavily HTTP API tools", () => {

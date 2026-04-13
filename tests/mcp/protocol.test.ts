@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import worker from "../../src/worker";
 import { jsonRpcRequest } from "../helpers/request";
 
@@ -139,6 +139,62 @@ describe("MCP protocol", () => {
           {
             type: "text",
             text: expect.stringContaining("expression, expr, or input")
+          }
+        ]
+      }
+    });
+  });
+
+  it("routes IP lookup tool calls through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        status: "success",
+        query: "8.8.8.8",
+        country: "United States",
+        countryCode: "US",
+        region: "CA",
+        regionName: "California",
+        city: "Mountain View",
+        timezone: "America/Los_Angeles",
+        lat: 37.4056,
+        lon: -122.0775,
+        zip: "94043",
+        isp: "Google LLC",
+        org: "Google Public DNS",
+        as: "AS15169 Google LLC",
+        asname: "GOOGLE",
+        mobile: false,
+        proxy: false,
+        hosting: true
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "iplookup",
+          arguments: { query: "8.8.8.8" }
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://ip-api.com/json/8.8.8.8?fields=55312383"
+    );
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"country_code": "US"')
           }
         ]
       }

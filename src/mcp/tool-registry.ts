@@ -84,6 +84,21 @@ const nativeTools: ToolDefinition[] = [
     name: "whoami",
     description: "Get the current request identity summary only",
     inputSchema: emptyObjectSchema
+  },
+  {
+    name: "iplookup",
+    description: "Look up IP or hostname geolocation and network details",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "IP address or hostname to look up"
+        }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
   }
 ];
 
