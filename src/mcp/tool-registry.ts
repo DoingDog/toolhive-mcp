@@ -40,7 +40,7 @@ const nativeTools: ToolDefinition[] = [
           additionalProperties: { type: "string" }
         },
         body: { type: "string" },
-        format: { type: "string", enum: ["markdown", "text", "html"], default: "text" },
+        format: { type: "string", enum: ["markdown", "text", "html"] },
         return_responseheaders: { type: "boolean", default: false }
       },
       required: ["url"],

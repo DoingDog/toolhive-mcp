@@ -299,8 +299,7 @@ describe("MCP protocol", () => {
     expect(response.status).toBe(200);
     expect(webfetch?.inputSchema.properties?.format).toEqual({
       type: "string",
-      enum: ["markdown", "text", "html"],
-      default: "text"
+      enum: ["markdown", "text", "html"]
     });
   });
 
@@ -342,6 +341,49 @@ describe("MCP protocol", () => {
           {
             type: "text",
             text: expect.stringContaining('"body": "# Hello\\n\\nWorld"')
+          }
+        ]
+      }
+    });
+  });
+
+  it("routes webfetch tools/call requests without format through JSON-RPC as raw body", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("<article><h1>Hello</h1><p>World</p></article>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/mcp",
+        jsonRpcRequest("tools/call", {
+          name: "webfetch",
+          arguments: {
+            url: "https://example.com/post"
+          }
+        })
+      ),
+      {},
+      ctx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/post",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"body": "<article><h1>Hello</h1><p>World</p></article>"')
           }
         ]
       }

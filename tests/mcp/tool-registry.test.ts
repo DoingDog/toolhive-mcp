@@ -65,7 +65,7 @@ describe("tool registry", () => {
 
     expect(webfetch?.inputSchema.properties).toMatchObject({
       method: { enum: ["GET", "POST"], default: "GET" },
-      format: { enum: ["markdown", "text", "html"], default: "text" },
+      format: { enum: ["markdown", "text", "html"] },
       return_responseheaders: { type: "boolean", default: false }
     });
     expect(webfetch?.inputSchema.properties?.requestheaders).toMatchObject({
