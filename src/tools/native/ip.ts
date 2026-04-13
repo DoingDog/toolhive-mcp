@@ -1,22 +1,49 @@
 import type { ToolContext } from "../types";
 import type { ToolExecutionResult } from "../../mcp/result";
 
-export async function handleIp(_args: unknown, context: ToolContext): Promise<ToolExecutionResult> {
+type RequestCfLocation = {
+  country?: string;
+  countryCode?: string;
+  region?: string;
+  city?: string;
+  timezone?: string;
+};
+
+function getWhoamiIp(headers: Headers): { ip: string | null; source: string | null } {
+  const cfConnectingIp = headers.get("cf-connecting-ip");
+  if (cfConnectingIp) {
+    return { ip: cfConnectingIp, source: "cf-connecting-ip" };
+  }
+
+  const forwardedFor = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwardedFor) {
+    return { ip: forwardedFor, source: "x-forwarded-for" };
+  }
+
+  const realIp = headers.get("x-real-ip");
+  if (realIp) {
+    return { ip: realIp, source: "x-real-ip" };
+  }
+
+  return { ip: null, source: null };
+}
+
+export async function handleWhoami(_args: unknown, context: ToolContext): Promise<ToolExecutionResult> {
   const headers = context.request.headers;
+  const cf = (context.request as Request & { cf?: RequestCfLocation }).cf;
+  const { ip, source } = getWhoamiIp(headers);
 
   return {
     ok: true,
     data: {
-      ip: headers.get("cf-connecting-ip") ?? headers.get("x-forwarded-for") ?? null,
-      method: context.request.method,
-      url: context.request.url,
-      headers: {
-        "cf-connecting-ip": headers.get("cf-connecting-ip"),
-        "x-forwarded-for": headers.get("x-forwarded-for"),
-        "x-real-ip": headers.get("x-real-ip"),
-        "user-agent": headers.get("user-agent")
-      },
-      cf: (context.request as Request & { cf?: unknown }).cf ?? null
+      ip,
+      country: cf?.country ?? null,
+      country_code: cf?.countryCode ?? cf?.country ?? null,
+      region: cf?.region ?? null,
+      city: cf?.city ?? null,
+      timezone: cf?.timezone ?? null,
+      source,
+      user_agent: headers.get("user-agent")
     }
   };
 }

@@ -81,8 +81,8 @@ const nativeTools: ToolDefinition[] = [
     }
   },
   {
-    name: "ip",
-    description: "Get IP and geolocation information",
+    name: "whoami",
+    description: "Get the current request identity summary only",
     inputSchema: emptyObjectSchema
   }
 ];

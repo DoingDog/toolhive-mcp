@@ -19,6 +19,8 @@ describe("tool registry", () => {
 
     expect(names).toContain("weather");
     expect(names).toContain("webfetch");
+    expect(names).toContain("whoami");
+    expect(names).not.toContain("ip");
     expect(names).toContain("devutils_base64_encode");
     expect(names).toContain("news_get_news");
     expect(names).toContain("news_get_news_detail");

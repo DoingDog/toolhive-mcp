@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleJsonRpc } from "../../src/mcp/router";
 import { handleCalc } from "../../src/tools/native/calc";
-import { handleIp } from "../../src/tools/native/ip";
+import { handleWhoami } from "../../src/tools/native/ip";
 import { handleTime } from "../../src/tools/native/time";
 import { handleWeather } from "../../src/tools/native/weather";
 import { handleWebfetch } from "../../src/tools/native/webfetch";
@@ -235,22 +235,104 @@ describe("native tools", () => {
     }
   });
 
-  it("ip reads cf-connecting-ip from request headers", async () => {
+  it("whoami prefers cf-connecting-ip and returns only identity summary fields", async () => {
     const request = new Request("https://example.com/mcp", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "cf-connecting-ip": "203.0.113.42"
+        "cf-connecting-ip": "203.0.113.42",
+        "x-forwarded-for": "198.51.100.5, 198.51.100.6",
+        "x-real-ip": "192.0.2.10",
+        "user-agent": "VitestAgent/1.0"
       }
     });
+    (request as Request & {
+      cf?: {
+        country?: string;
+        region?: string;
+        city?: string;
+        timezone?: string;
+      };
+    }).cf = {
+      country: "US",
+      region: "California",
+      city: "San Francisco",
+      timezone: "America/Los_Angeles"
+    };
 
-    const result = await handleIp({}, { ...context, request });
+    const result = await handleWhoami({}, { ...context, request });
 
     expect(result).toEqual({
       ok: true,
-      data: expect.objectContaining({
-        ip: "203.0.113.42"
-      })
+      data: {
+        ip: "203.0.113.42",
+        country: "US",
+        country_code: "US",
+        region: "California",
+        city: "San Francisco",
+        timezone: "America/Los_Angeles",
+        source: "cf-connecting-ip",
+        user_agent: "VitestAgent/1.0"
+      }
+    });
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty("headers");
+      expect(result.data).not.toHaveProperty("cf");
+      expect(result.data).not.toHaveProperty("method");
+      expect(result.data).not.toHaveProperty("url");
+    }
+  });
+
+  it("whoami uses the first x-forwarded-for address when cf-connecting-ip is absent", async () => {
+    const request = new Request("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": "198.51.100.5, 198.51.100.6",
+        "x-real-ip": "192.0.2.10"
+      }
+    });
+
+    const result = await handleWhoami({}, { ...context, request });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        ip: "198.51.100.5",
+        country: null,
+        country_code: null,
+        region: null,
+        city: null,
+        timezone: null,
+        source: "x-forwarded-for",
+        user_agent: null
+      }
+    });
+  });
+
+  it("whoami falls back to x-real-ip when other forwarding headers are absent", async () => {
+    const request = new Request("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-real-ip": "192.0.2.10"
+      }
+    });
+
+    const result = await handleWhoami({}, { ...context, request });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        ip: "192.0.2.10",
+        country: null,
+        country_code: null,
+        region: null,
+        city: null,
+        timezone: null,
+        source: "x-real-ip",
+        user_agent: null
+      }
     });
   });
 
@@ -437,12 +519,13 @@ describe("native tools", () => {
     expect(body).not.toHaveProperty("error");
   });
 
-  it("router keeps ip as a true no-argument tool", async () => {
+  it("router keeps whoami as a true no-argument tool and omits noisy request dumps", async () => {
     const request = new Request("https://example.com/mcp", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "cf-connecting-ip": "203.0.113.42"
+        "cf-connecting-ip": "203.0.113.42",
+        "user-agent": "VitestAgent/1.0"
       }
     });
 
@@ -452,26 +535,23 @@ describe("native tools", () => {
         id: 1,
         method: "tools/call",
         params: {
-          name: "ip",
+          name: "whoami",
           arguments: {}
         }
       },
       {},
       request
     );
-    const body = await response.json();
+    const body = await response.json() as { result: { content: { type: string; text: string }[] } };
+    const text = body.result.content[0]?.text ?? "";
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({
-      result: {
-        content: [
-          {
-            type: "text",
-            text: expect.stringContaining("203.0.113.42")
-          }
-        ]
-      }
-    });
+    expect(text).toContain("203.0.113.42");
+    expect(text).toContain("\"source\": \"cf-connecting-ip\"");
+    expect(text).not.toContain("\"headers\"");
+    expect(text).not.toContain("\"cf\"");
+    expect(text).not.toContain("\"method\"");
+    expect(text).not.toContain("\"url\"");
   });
 
   it("router dispatches canonical devutils names through JSON-RPC", async () => {

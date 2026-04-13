@@ -37,7 +37,7 @@ import { handleTimestampConvert } from "../tools/devutils/timestamp";
 import { handleCidrCalculate, handleIpValidate } from "../tools/devutils/ip-tools";
 import { handleCaseConvert, handleSlugify, handleTextStats } from "../tools/devutils/text";
 import { handleCalc } from "../tools/native/calc";
-import { handleIp } from "../tools/native/ip";
+import { handleWhoami } from "../tools/native/ip";
 import { handleTime } from "../tools/native/time";
 import { handleWeather } from "../tools/native/weather";
 import { handleWebfetch } from "../tools/native/webfetch";
@@ -105,8 +105,8 @@ async function dispatchTool(name: string, args: unknown, context: ToolContext) {
       return handleCalc(args, context);
     case "time":
       return handleTime(args, context);
-    case "ip":
-      return handleIp(args, context);
+    case "whoami":
+      return handleWhoami(args, context);
     case "tavily_search":
       return handleTavilySearch(args, context.env);
     case "tavily_extract":
