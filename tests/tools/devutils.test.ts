@@ -77,6 +77,15 @@ describe("devutils", () => {
     }
   });
 
+  it("converts unix timestamps passed as numeric strings", async () => {
+    const result = await handleTimestampConvert({ value: "1710000000" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect((result.data as any).unix).toBe(1710000000);
+    }
+  });
+
   it("validates IPv4", async () => {
     const result = await handleIpValidate({ ip: "192.168.1.1" });
 
