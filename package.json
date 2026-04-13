@@ -16,5 +16,8 @@
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "latest"
+  },
+  "dependencies": {
+    "html-to-md": "^0.8.8"
   }
 }

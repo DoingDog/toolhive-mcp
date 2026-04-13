@@ -145,6 +145,115 @@ describe("native tools", () => {
     );
   });
 
+  it("webfetch converts HTML to markdown when requested", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<article><h1>Hello</h1><p>World</p></article>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        })
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/article",
+        format: "markdown"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/article",
+        body: expect.stringContaining("# Hello")
+      }
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toMatchObject({
+        body: expect.stringContaining("World")
+      });
+    }
+  });
+
+  it("webfetch converts HTML to readable text when requested", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<article><h1>Hello</h1><p>World</p><p>Again</p></article>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        })
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/article",
+        format: "text"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/article",
+        body: "Hello\n\nWorld\n\nAgain"
+      }
+    });
+  });
+
+  it("webfetch keeps non-HTML text unchanged for all formats", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"ok":true}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      handleWebfetch({ url: "https://example.com/data", format: "markdown" }, context)
+    ).resolves.toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/data",
+        body: '{"ok":true}'
+      }
+    });
+
+    await expect(
+      handleWebfetch({ url: "https://example.com/data", format: "text" }, context)
+    ).resolves.toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/data",
+        body: '{"ok":true}'
+      }
+    });
+
+    await expect(
+      handleWebfetch({ url: "https://example.com/data", format: "html" }, context)
+    ).resolves.toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/data",
+        body: '{"ok":true}'
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("webfetch rejects upstream fetch failures", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new Error("network down");

@@ -287,6 +287,23 @@ describe("MCP protocol", () => {
     });
   });
 
+  it("exposes the webfetch format enum through tools/list", async () => {
+    const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
+    const body = (await response.json()) as {
+      result: {
+        tools: { name: string; inputSchema: { properties?: Record<string, unknown> } }[];
+      };
+    };
+    const webfetch = body.result.tools.find((tool) => tool.name === "webfetch");
+
+    expect(response.status).toBe(200);
+    expect(webfetch?.inputSchema.properties?.format).toEqual({
+      type: "string",
+      enum: ["markdown", "text", "html"],
+      default: "text"
+    });
+  });
+
   it("does not expose any domain tools from tools/list", async () => {
     const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
     const body = (await response.json()) as { result: { tools: { name: string }[] } };
