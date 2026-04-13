@@ -56,12 +56,12 @@ function extractHtmlText(html: string): string {
     .trim();
 }
 
-function formatResponseBody(body: string, contentType: string | null, format: WebfetchFormat): string {
+function formatResponseBody(body: string, contentType: string | null, format?: WebfetchFormat): string {
   if (!isHtmlResponse(contentType)) {
     return body;
   }
 
-  if (format === "html") {
+  if (format === undefined || format === "html") {
     return body;
   }
 
@@ -84,8 +84,8 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     return validationError("method must be GET or POST");
   }
 
-  const format = webfetchArgs.format ?? "text";
-  if (!isWebfetchFormat(format)) {
+  const format = webfetchArgs.format;
+  if (format !== undefined && !isWebfetchFormat(format)) {
     return validationError("format must be markdown, text, or html");
   }
 

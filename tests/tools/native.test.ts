@@ -214,6 +214,34 @@ describe("native tools", () => {
     }
   });
 
+  it("webfetch returns raw HTML unchanged when format is omitted", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<article><h1>Hello</h1><p>World</p><p>Again</p></article>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        })
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/article"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/article",
+        body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>"
+      }
+    });
+  });
+
   it("webfetch converts HTML to readable text when requested", async () => {
     vi.stubGlobal(
       "fetch",
@@ -239,6 +267,35 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/article",
         body: "Hello\n\nWorld\n\nAgain"
+      }
+    });
+  });
+
+  it("webfetch returns raw HTML unchanged when format is html", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<article><h1>Hello</h1><p>World</p><p>Again</p></article>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        })
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/article",
+        format: "html"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/article",
+        body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>"
       }
     });
   });
