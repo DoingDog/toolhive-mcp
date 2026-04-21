@@ -1,3 +1,4 @@
+import { createResponseMetadata } from "../../lib/response-metadata";
 import { upstreamError, validationError } from "../../lib/errors";
 import type { ToolExecutionResult } from "../../mcp/result";
 
@@ -42,9 +43,15 @@ export async function handleIpLookup(args: unknown): Promise<ToolExecutionResult
     return validationError("query must be a non-empty string");
   }
 
-  const response = await fetch(
-    `http://ip-api.com/json/${encodeURIComponent(query)}?fields=55312383`
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `http://ip-api.com/json/${encodeURIComponent(query)}?fields=55312383`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return upstreamError(`IP-API request failed: ${message}`);
+  }
 
   if (response.status === 429) {
     const rateLimitRemaining = response.headers.get("X-Rl") ?? undefined;
@@ -101,7 +108,11 @@ export async function handleIpLookup(args: unknown): Promise<ToolExecutionResult
       mobile: data.mobile,
       proxy: data.proxy,
       hosting: data.hosting,
-      raw: data
+      ...createResponseMetadata({
+        providerUsed: "ip-api",
+        cached: false,
+        partial: false
+      })
     }
   };
 }

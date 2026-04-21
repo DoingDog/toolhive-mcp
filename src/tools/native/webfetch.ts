@@ -1,6 +1,8 @@
 import htmlToMd from "html-to-md";
-import { upstreamError, validationError } from "../../lib/errors";
+import { validationError } from "../../lib/errors";
 import { assertHttpUrl, DEFAULT_CHROME_UA, headersToObject } from "../../lib/http";
+import { createResponseMetadata } from "../../lib/response-metadata";
+import { fetchGuardedText } from "../../lib/upstream";
 import type { ToolContext } from "../types";
 import type { ToolExecutionResult } from "../../mcp/result";
 
@@ -13,12 +15,15 @@ type WebfetchArgs = {
   body?: unknown;
   format?: unknown;
   return_responseheaders?: unknown;
+  max_bytes?: unknown;
 };
 
+const WEBFETCH_TIMEOUT_MS = 30_000;
+
 function isHeaderRecord(value: unknown): value is Record<string, string> {
-  return !!value &&
-    typeof value === "object" &&
-    Object.values(value).every((item) => typeof item === "string");
+  return !!value
+    && typeof value === "object"
+    && Object.values(value).every((item) => typeof item === "string");
 }
 
 function isWebfetchFormat(value: unknown): value is WebfetchFormat {
@@ -61,11 +66,11 @@ function formatResponseBody(body: string, contentType: string | null, format?: W
     return body;
   }
 
-  if (format === undefined || format === "html") {
+  if (format === "html") {
     return body;
   }
 
-  if (format === "markdown") {
+  if (format === undefined || format === "markdown") {
     return htmlToMd(body);
   }
 
@@ -97,6 +102,14 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     return validationError("body must be a string");
   }
 
+  if (method === "GET" && webfetchArgs.body !== undefined) {
+    return validationError("body is only allowed for POST requests");
+  }
+
+  if (webfetchArgs.max_bytes !== undefined && (!Number.isInteger(webfetchArgs.max_bytes) || (webfetchArgs.max_bytes as number) < 0)) {
+    return validationError("max_bytes must be a non-negative integer");
+  }
+
   let headers: Headers;
   try {
     headers = new Headers(webfetchArgs.requestheaders as HeadersInit | undefined);
@@ -114,35 +127,44 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     init.body = webfetchArgs.body;
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), init);
-  } catch (error) {
-    return upstreamError(
-      error instanceof Error ? error.message : "webfetch request failed"
-    );
+  const result = await fetchGuardedText(
+    { url: url.toString(), init },
+    {
+      serviceName: "webfetch",
+      timeoutMs: WEBFETCH_TIMEOUT_MS,
+      ...(webfetchArgs.max_bytes !== undefined ? { maxBytes: webfetchArgs.max_bytes as number } : {})
+    }
+  );
+
+  if ("error" in result) {
+    return result;
   }
 
-  let body: string;
-  try {
-    body = await response.text();
-  } catch (error) {
-    return upstreamError(
-      error instanceof Error ? error.message : "webfetch response read failed"
-    );
-  }
-
-  if (!response.ok) {
-    return upstreamError("webfetch request failed", response.status, body);
+  if (!result.response.ok) {
+    return {
+      ok: false,
+      error: {
+        type: "upstream_error",
+        message: "webfetch request failed",
+        details: { status: result.response.status, details: result.text }
+      }
+    };
   }
 
   return {
     ok: true,
     data: {
-      status: response.status,
-      url: url.toString(),
-      body: formatResponseBody(body, response.headers.get("content-type"), format),
-      ...(webfetchArgs.return_responseheaders === true ? { headers: headersToObject(response.headers) } : {})
+      status: result.response.status,
+      url: result.response.url || url.toString(),
+      body: formatResponseBody(result.text, result.response.headers.get("content-type"), format),
+      ...createResponseMetadata({
+        providerUsed: "webfetch",
+        ...(result.contentLength !== undefined ? { contentLength: result.contentLength } : {}),
+        truncated: result.truncated,
+        cached: false,
+        partial: false
+      }),
+      ...(webfetchArgs.return_responseheaders === true ? { headers: headersToObject(result.response.headers) } : {})
     }
   };
 }

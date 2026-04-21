@@ -1,6 +1,8 @@
+import packageJson from "../../package.json";
+
 export const SERVER_INFO = {
-  name: "cloudflare-multi-mcp",
-  version: "0.1.0"
+  name: packageJson.name,
+  version: packageJson.version
 } as const;
 
 export function initializeResult() {
