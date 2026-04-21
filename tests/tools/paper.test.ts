@@ -37,6 +37,26 @@ describe("arXiv paper provider", () => {
       provider: "arxiv"
     });
   });
+
+  it("normalizes arXiv authors instead of returning an empty list", () => {
+    expect(
+      normalizeArxivEntry({
+        id: "http://arxiv.org/abs/1706.03762v7",
+        title: "Attention Is All You Need",
+        summary: "Transformer abstract",
+        authors: [
+          "Ashish Vaswani",
+          "Noam Shazeer",
+          "Niki Parmar"
+        ]
+      })
+    ).toMatchObject({
+      arxiv_id: "1706.03762",
+      title: "Attention Is All You Need",
+      authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar"],
+      provider: "arxiv"
+    });
+  });
 });
 
 describe("Europe PMC paper provider", () => {
@@ -92,6 +112,41 @@ describe("Crossref paper provider", () => {
       provider: "crossref"
     });
   });
+
+  it("normalizes Crossref authors, venue, and counts into the shared paper shape", () => {
+    expect(
+      normalizeCrossrefWork({
+        DOI: "10.1109/CVPR.2016.90",
+        title: ["Deep Residual Learning for Image Recognition"],
+        author: [
+          { given: "Kaiming", family: "He" },
+          { given: "Xiangyu", family: "Zhang" },
+          { given: "Shaoqing", family: "Ren" },
+          { given: "Jian", family: "Sun" }
+        ],
+        event: { name: "CVPR 2016" },
+        "container-title": ["Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"],
+        issued: { "date-parts": [[2016]] },
+        "is-referenced-by-count": 250000,
+        "reference-count": 41
+      })
+    ).toEqual({
+      title: "Deep Residual Learning for Image Recognition",
+      authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+      abstract: null,
+      year: 2016,
+      venue: "CVPR 2016",
+      doi: "10.1109/CVPR.2016.90",
+      arxiv_id: null,
+      paper_id: "10.1109/CVPR.2016.90",
+      source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+      download_links: [],
+      open_access: null,
+      citation_count: 250000,
+      reference_count: 41,
+      provider: "crossref"
+    });
+  });
 });
 
 describe("OpenAlex paper provider", () => {
@@ -117,6 +172,44 @@ describe("OpenAlex paper provider", () => {
       open_access: null,
       citation_count: null,
       reference_count: null,
+      provider: "openalex"
+    });
+  });
+
+  it("normalizes OpenAlex authorships, venue, abstract, and counts", () => {
+    expect(
+      normalizeOpenAlexWork({
+        id: "https://openalex.org/W2046618432",
+        doi: "https://doi.org/10.1038/nature14539",
+        title: "Deep learning",
+        publication_year: 2015,
+        authorships: [
+          { author: { display_name: "Yann LeCun" } },
+          { author: { display_name: "Yoshua Bengio" } },
+          { author: { display_name: "Geoffrey Hinton" } }
+        ],
+        primary_location: {
+          source: { display_name: "Nature" }
+        },
+        abstract_inverted_index: {
+          Deep: [0],
+          learning: [1],
+          transforms: [2],
+          "AI.": [3]
+        },
+        cited_by_count: 123456,
+        referenced_works_count: 321
+      })
+    ).toMatchObject({
+      title: "Deep learning",
+      authors: ["Yann LeCun", "Yoshua Bengio", "Geoffrey Hinton"],
+      abstract: "Deep learning transforms AI.",
+      year: 2015,
+      venue: "Nature",
+      doi: "10.1038/nature14539",
+      paper_id: "https://openalex.org/W2046618432",
+      citation_count: 123456,
+      reference_count: 321,
       provider: "openalex"
     });
   });

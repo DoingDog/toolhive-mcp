@@ -4,6 +4,7 @@ type ArxivEntry = {
   id?: unknown;
   title?: unknown;
   summary?: unknown;
+  authors?: unknown;
 };
 
 function normalizeText(value: unknown): string | null {
@@ -41,12 +42,22 @@ function normalizeYear(arxivId: string | null): number | null {
   return 2000 + Number(match[1]);
 }
 
+function normalizeArxivAuthors(authors: unknown): string[] {
+  if (!Array.isArray(authors)) {
+    return [];
+  }
+
+  return authors
+    .map((author) => (typeof author === "string" ? author.trim() : ""))
+    .filter((author) => author.length > 0);
+}
+
 export function normalizeArxivEntry(entry: ArxivEntry): NormalizedPaper {
   const arxivId = normalizeArxivId(entry.id);
 
   return {
     title: normalizeText(entry.title),
-    authors: [],
+    authors: normalizeArxivAuthors(entry.authors),
     abstract: normalizeText(entry.summary),
     year: normalizeYear(arxivId),
     venue: null,
