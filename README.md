@@ -15,7 +15,7 @@ Running MCP tools behind a single hosted endpoint is useful when you want:
 
 ## Features
 
-Current release: `toolhive-mcp@0.3.0`
+Current release: `toolhive-mcp@0.4.0`
 
 Current release capabilities:
 
