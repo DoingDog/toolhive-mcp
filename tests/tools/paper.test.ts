@@ -408,6 +408,62 @@ describe("paper tool surface", () => {
     );
   });
 
+  it("falls back from arxiv doi exact lookup to doi providers when arxiv is unavailable", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response("service unavailable", { status: 503 });
+      }
+
+      if (url === "https://api.crossref.org/works/10.48550%2FarXiv.1706.03762") {
+        return Response.json({
+          message: {
+            DOI: "10.48550/arXiv.1706.03762",
+            title: ["Attention Is All You Need"],
+            issued: { "date-parts": [[2017]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.48550%2FarXiv.1706.03762") {
+        return Response.json({ results: [] });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.48550/arXiv.1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.48550/arXiv.1706.03762",
+        partial: true,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need"
+          })
+        ])
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.48550%2FarXiv.1706.03762&rows=10",
+      expect.anything()
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.openalex.org/works?search=10.48550%2FarXiv.1706.03762&per-page=10",
+      expect.anything()
+    );
+  });
+
   it("routes plain DOI queries through exact lookup instead of generic full-text search", async () => {
     const handler = getToolHandler("paper_search");
     const context = {
@@ -840,6 +896,53 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W1234567890",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
+    });
+  });
+
+  it("returns partial related results when one OpenAlex related work fetch fails", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999", "https://openalex.org/W998"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related-success",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W998") {
+        return new Response("upstream failure", { status: 500 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: true,
         relationship_type: "related",
         results: [expect.objectContaining({ title: "Related Paper" })]
       })

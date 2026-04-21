@@ -111,7 +111,7 @@ function looksLikeArxivId(value: string): boolean {
 
 type PaperQueryClassification =
   | { kind: "doi"; doi: string }
-  | { kind: "arxiv_id"; arxivId: string }
+  | { kind: "arxiv_id"; arxivId: string; doi?: string }
   | { kind: "text"; query: string };
 
 function normalizeArxivIdentifier(value: string): string {
@@ -124,7 +124,8 @@ function classifyPaperQuery(query: string): PaperQueryClassification {
   if (/^10\.48550\/arxiv\./i.test(normalizedQuery)) {
     return {
       kind: "arxiv_id",
-      arxivId: normalizeArxivIdentifier(normalizedQuery.replace(/^10\.48550\/arxiv\./i, ""))
+      arxivId: normalizeArxivIdentifier(normalizedQuery.replace(/^10\.48550\/arxiv\./i, "")),
+      doi: normalizedQuery
     };
   }
 
@@ -371,12 +372,26 @@ async function fetchOpenAlexWorkByDoi(doi: string): Promise<OpenAlexWorkLookupRe
   return parseOpenAlexWorkLookup(firstResult as Record<string, unknown>, fallbackResponse.status);
 }
 
-async function fetchOpenAlexWorksByIds(ids: string[]): Promise<NormalizedPaper[]> {
-  const papers = await Promise.all(
+async function fetchOpenAlexWorksByIds(ids: string[]): Promise<{ papers: NormalizedPaper[]; partial: boolean }> {
+  const results = await Promise.allSettled(
     ids.map(async (id) => (await fetchOpenAlexWorkById(id)).paper)
   );
 
-  return papers.filter((paper): paper is NormalizedPaper => paper !== null);
+  const papers: NormalizedPaper[] = [];
+  let partial = false;
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      partial = true;
+      return;
+    }
+
+    if (result.value) {
+      papers.push(result.value);
+    }
+  });
+
+  return { papers, partial };
 }
 
 async function fetchCrossrefReferences(doi: string): Promise<NormalizedPaper[]> {
@@ -436,15 +451,67 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
   const classification = classifyPaperQuery(query);
 
   if (classification.kind === "arxiv_id") {
-    const providerResult = await fetchArxivDetails(classification.arxivId);
+    let arxivLookupFailed = false;
+
+    try {
+      const providerResult = await fetchArxivDetails(classification.arxivId);
+      if (providerResult.paper) {
+        return {
+          ok: true,
+          data: {
+            query,
+            providers: [providerResult.provider],
+            partial: false,
+            results: [providerResult.paper]
+          }
+        };
+      }
+
+      arxivLookupFailed = classification.doi !== undefined;
+    } catch {
+      arxivLookupFailed = classification.doi !== undefined;
+    }
+
+    if (classification.doi) {
+      const providerResults = await Promise.allSettled([
+        fetchCrossrefDetails(classification.doi),
+        fetchOpenAlexDetails(classification.doi)
+      ]);
+
+      const providers: PaperProvider[] = [];
+      const papers: NormalizedPaper[] = [];
+
+      providerResults.forEach((result) => {
+        if (result.status === "rejected") {
+          return;
+        }
+
+        if (!result.value.paper) {
+          return;
+        }
+
+        providers.push(result.value.provider);
+        papers.push(result.value.paper);
+      });
+
+      return {
+        ok: true,
+        data: {
+          query,
+          providers,
+          partial: arxivLookupFailed,
+          results: mergePaperResults(papers)
+        }
+      };
+    }
 
     return {
       ok: true,
       data: {
         query,
-        providers: providerResult.paper ? [providerResult.provider] : [],
+        providers: [],
         partial: false,
-        results: providerResult.paper ? [providerResult.paper] : []
+        results: []
       }
     };
   }
@@ -637,18 +704,19 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
   }
 
   try {
-    const relatedResults = lookup.relatedWorkIds.length > 0
-      ? finalizeRelatedResults(
-          await hydrateRelatedResults(await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10)))
-        )
-      : [];
+    const relatedLookup = lookup.relatedWorkIds.length > 0
+      ? await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10))
+      : { papers: [], partial: false };
+    const relatedResults = finalizeRelatedResults(
+      await hydrateRelatedResults(relatedLookup.papers)
+    );
 
     return {
       ok: true,
       data: {
         paper_id: classification.kind === "doi" ? classification.value : lookup.workId,
         providers: ["openalex"],
-        partial: false,
+        partial: relatedLookup.partial,
         relationship_type: "related",
         results: relatedResults
       }
