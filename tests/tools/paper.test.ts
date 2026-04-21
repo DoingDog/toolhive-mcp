@@ -1196,6 +1196,52 @@ describe("paper normalization merge", () => {
       }
     ]);
   });
+
+  it("keeps non-empty authors, stronger venue, and OpenAlex paper_id when merging duplicate papers", () => {
+    const merged = mergePaperResults([
+      {
+        title: "Deep Residual Learning for Image Recognition",
+        authors: [],
+        abstract: null,
+        year: 2016,
+        venue: "1507 06228",
+        doi: "10.1109/CVPR.2016.90",
+        arxiv_id: null,
+        paper_id: "10.1109/CVPR.2016.90",
+        source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+        download_links: [],
+        open_access: null,
+        citation_count: null,
+        reference_count: null,
+        provider: "crossref"
+      },
+      {
+        title: "Deep Residual Learning for Image Recognition",
+        authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+        abstract: "Residual networks.",
+        year: 2016,
+        venue: "CVPR 2016",
+        doi: "10.1109/CVPR.2016.90",
+        arxiv_id: null,
+        paper_id: "https://openalex.org/W2126138322",
+        source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+        download_links: [],
+        open_access: null,
+        citation_count: 250000,
+        reference_count: 41,
+        provider: "openalex"
+      }
+    ]);
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+        venue: "CVPR 2016",
+        paper_id: "https://openalex.org/W2126138322",
+        provider: "openalex"
+      })
+    ]);
+  });
 });
 
 describe("Unpaywall paper provider", () => {

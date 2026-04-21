@@ -89,8 +89,51 @@ function chooseBetterString(current: string | null, candidate: string | null): s
   return normalizedCandidate.length > normalizedCurrent.length ? normalizedCandidate : normalizedCurrent;
 }
 
+function isGarbageVenue(value: string | null): boolean {
+  const normalizedValue = normalizeText(value);
+  if (normalizedValue === null) {
+    return false;
+  }
+
+  return /^\d{4,}(?:[ ._-]?\d{4,})+$/.test(normalizedValue);
+}
+
+function scoreAuthors(authors: string[]): number {
+  const normalizedAuthors = authors
+    .map((author) => author.trim())
+    .filter((author) => author.length > 0);
+
+  return normalizedAuthors.length * 100
+    + normalizedAuthors.reduce((total, author) => total + author.split(/\s+/).filter((token) => token.length > 0).length, 0);
+}
+
 function chooseBetterAuthors(current: string[], candidate: string[]): string[] {
-  return candidate.length > current.length ? candidate.map((author) => author.trim()).filter((author) => author.length > 0) : current.map((author) => author.trim()).filter((author) => author.length > 0);
+  const normalizedCurrent = current.map((author) => author.trim()).filter((author) => author.length > 0);
+  const normalizedCandidate = candidate.map((author) => author.trim()).filter((author) => author.length > 0);
+
+  return scoreAuthors(normalizedCandidate) > scoreAuthors(normalizedCurrent) ? normalizedCandidate : normalizedCurrent;
+}
+
+function chooseBetterVenue(current: string | null, candidate: string | null): string | null {
+  const normalizedCurrent = normalizeText(current);
+  const normalizedCandidate = normalizeText(candidate);
+
+  if (normalizedCurrent === null) {
+    return normalizedCandidate;
+  }
+
+  if (normalizedCandidate === null) {
+    return normalizedCurrent;
+  }
+
+  const currentIsGarbage = isGarbageVenue(normalizedCurrent);
+  const candidateIsGarbage = isGarbageVenue(normalizedCandidate);
+
+  if (currentIsGarbage !== candidateIsGarbage) {
+    return currentIsGarbage ? normalizedCandidate : normalizedCurrent;
+  }
+
+  return chooseBetterString(normalizedCurrent, normalizedCandidate);
 }
 
 function chooseBetterNumber(current: number | null, candidate: number | null): number | null {
@@ -162,7 +205,7 @@ function mergeTwoPapers(current: NormalizedPaper, candidate: NormalizedPaper): N
     authors: chooseBetterAuthors(current.authors, candidate.authors),
     abstract: chooseBetterString(current.abstract, candidate.abstract),
     year: chooseBetterNumber(current.year, candidate.year),
-    venue: chooseBetterString(current.venue, candidate.venue),
+    venue: chooseBetterVenue(current.venue, candidate.venue),
     doi,
     arxiv_id: arxivId,
     paper_id: openAlexPaperId ?? doi ?? arxivId ?? fallbackPaperId,
