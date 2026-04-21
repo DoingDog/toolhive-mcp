@@ -1,6 +1,6 @@
 import { internalError, validationError } from "../../lib/errors";
 import type { ToolExecutionResult } from "../../mcp/result";
-import { isAuxiliaryPaperRecord, mergePaperResults, scorePaperForQuery } from "./normalize";
+import { isAuxiliaryPaperRecord, mergePaperResults, normalizeSearchTitleKey, scorePaperForQuery } from "./normalize";
 import { normalizeArxivEntry } from "./providers/arxiv";
 import { normalizeCrossrefReference, normalizeCrossrefWork } from "./providers/crossref";
 import { normalizeOpenAlexWork } from "./providers/openalex";
@@ -32,7 +32,7 @@ type ProviderPaperResult = {
 };
 
 type ProviderPaperSearchResult = {
-  provider: Extract<PaperProvider, "crossref" | "openalex">;
+  provider: Extract<PaperProvider, "crossref" | "openalex" | "arxiv">;
   papers: NormalizedPaper[];
 };
 
@@ -408,6 +408,22 @@ async function fetchCrossrefReferences(doi: string): Promise<NormalizedPaper[]> 
     .filter((paper): paper is NormalizedPaper => paper !== null);
 }
 
+function parseArxivEntries(xml: string): NormalizedPaper[] {
+  return Array.from(xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi))
+    .map((match) => {
+      const entryBody = match[1] ?? "";
+      const id = entryBody.match(/<id>([\s\S]*?)<\/id>/i)?.[1]?.trim() ?? null;
+      const title = entryBody.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
+      const summary = entryBody.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim() ?? null;
+      const authors = Array.from(entryBody.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/gi))
+        .map((authorMatch) => authorMatch[1]?.trim() ?? "")
+        .filter((author) => author.length > 0);
+
+      return normalizeArxivEntry({ id, title, summary, authors });
+    })
+    .filter((paper): paper is NormalizedPaper => paper !== null);
+}
+
 async function fetchArxivDetails(identifier: string): Promise<ProviderPaperResult> {
   const response = await fetch(
     `https://export.arxiv.org/api/query?search_query=id:${encodeURIComponent(identifier)}&start=0&max_results=1`,
@@ -417,26 +433,27 @@ async function fetchArxivDetails(identifier: string): Promise<ProviderPaperResul
     throw new Error(`arXiv API returned ${response.status}`);
   }
 
-  const xml = await response.text();
-  const entryMatch = xml.match(/<entry>([\s\S]*?)<\/entry>/i);
-  if (!entryMatch) {
-    return {
-      provider: "arxiv",
-      paper: null
-    };
+  return {
+    provider: "arxiv",
+    paper: parseArxivEntries(await response.text())[0] ?? null
+  };
+}
+
+async function searchArxivExactTitle(query: string): Promise<ProviderPaperSearchResult> {
+  const response = await fetch(
+    `https://export.arxiv.org/api/query?search_query=ti:%22${encodeURIComponent(query)}%22&start=0&max_results=5`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw new Error(`arXiv API returned ${response.status}`);
   }
 
-  const entryBody = entryMatch[1] ?? "";
-  const id = entryBody.match(/<id>([\s\S]*?)<\/id>/i)?.[1]?.trim() ?? null;
-  const title = entryBody.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
-  const summary = entryBody.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim() ?? null;
-  const authors = Array.from(entryBody.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/gi))
-    .map((match) => match[1]?.trim() ?? "")
-    .filter((author) => author.length > 0);
+  const normalizedQuery = normalizeSearchTitleKey(query);
 
   return {
     provider: "arxiv",
-    paper: normalizeArxivEntry({ id, title, summary, authors })
+    papers: parseArxivEntries(await response.text())
+      .filter((paper) => normalizeSearchTitleKey(paper.title) === normalizedQuery)
   };
 }
 
@@ -559,16 +576,32 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
   const providers: ProviderPaperSearchResult["provider"][] = [];
   const papers: NormalizedPaper[] = [];
   let partial = false;
+  let openAlexSearchRejected = false;
 
-  providerResults.forEach((result) => {
+  providerResults.forEach((result, index) => {
     if (result.status === "rejected") {
       partial = true;
+      if (index === 1) {
+        openAlexSearchRejected = true;
+      }
       return;
     }
 
     providers.push(result.value.provider);
     papers.push(...result.value.papers);
   });
+
+  if (openAlexSearchRejected) {
+    try {
+      const arxivFallback = await searchArxivExactTitle(classification.query);
+      if (arxivFallback.papers.length > 0) {
+        providers.push(arxivFallback.provider);
+        papers.push(...arxivFallback.papers);
+      }
+    } catch {
+      // keep crossref-only degraded results when arXiv fallback fails
+    }
+  }
 
   const results = mergePaperResults(papers)
     .filter((paper) => !isAuxiliaryPaperRecord(paper))

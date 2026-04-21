@@ -49,11 +49,12 @@ export function scorePaperForQuery(paper: NormalizedPaper, query: string): numbe
   const normalizedTitle = normalizeSearchTitleKey(paper.title);
   const exactTitleScore = normalizedQuery !== null && normalizedTitle === normalizedQuery ? 1_000_000 : 0;
   const titlePrefixScore = exactTitleScore === 0 && normalizedQuery !== null && normalizedTitle?.startsWith(normalizedQuery) ? 100_000 : 0;
+  const exactTitleArxivBonus = exactTitleScore > 0 && paper.arxiv_id !== null ? 25_000 : 0;
   const completenessScore = scorePaperCompleteness(paper) * 1_000;
   const citationScore = Math.min(paper.citation_count ?? 0, 500_000);
   const yearScore = paper.year === null ? 0 : Math.max(0, 2100 - paper.year);
 
-  return exactTitleScore + titlePrefixScore + completenessScore + citationScore - yearScore;
+  return exactTitleScore + titlePrefixScore + exactTitleArxivBonus + completenessScore + citationScore + yearScore;
 }
 
 function buildFallbackKey(paper: NormalizedPaper): string | null {

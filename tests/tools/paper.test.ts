@@ -604,6 +604,98 @@ describe("paper tool surface", () => {
     }
   });
 
+  it("falls back to arxiv exact-title search when openalex search is unavailable", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=Attention%20Is%20All%20You%20Need&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.5555/attention-mirror-2025",
+                title: ["Attention Is All You Need"],
+                issued: { "date-parts": [[2025]] },
+                author: [{ given: "Mirror", family: "Author" }],
+                "is-referenced-by-count": 2
+              },
+              {
+                DOI: "10.5555/is-attention-all-you-need-2025",
+                title: ["Is Attention All You Need?"],
+                issued: { "date-parts": [[2025]] },
+                author: [{ given: "Derivative", family: "Author" }],
+                "is-referenced-by-count": 20
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=Attention%20Is%20All%20You%20Need&per-page=10") {
+        return new Response("budget exhausted", { status: 429 });
+      }
+
+      if (url === "https://export.arxiv.org/api/query?search_query=ti:%22Attention%20Is%20All%20You%20Need%22&start=0&max_results=5") {
+        return new Response(`
+          <feed>
+            <entry>
+              <id>http://arxiv.org/abs/1706.03762v7</id>
+              <title>Attention Is All You Need</title>
+              <summary>Transformer paper</summary>
+              <author><name>Ashish Vaswani</name></author>
+              <author><name>Noam Shazeer</name></author>
+            </entry>
+            <entry>
+              <id>http://arxiv.org/abs/2501.00001v1</id>
+              <title>Is Attention All You Need?</title>
+              <summary>Derivative paper</summary>
+              <author><name>Derivative Author</name></author>
+            </entry>
+          </feed>
+        `, { status: 200 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    const result = await handler?.({ query: "Attention Is All You Need" }, context);
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        providers: expect.arrayContaining(["crossref", "arxiv"]),
+        partial: true,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need",
+            arxiv_id: "1706.03762",
+            provider: "arxiv"
+          })
+        ])
+      })
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      const data = result.data as {
+        providers: string[];
+        partial: boolean;
+        results: Array<{ title: string | null; arxiv_id: string | null; provider: string | null }>;
+      };
+      expect(data.providers).toEqual(expect.arrayContaining(["crossref", "arxiv"]));
+      expect(data.partial).toBe(true);
+      expect(data.results[0]).toMatchObject({
+        title: "Attention Is All You Need",
+        arxiv_id: "1706.03762",
+        provider: "arxiv"
+      });
+    }
+  });
+
   it("aggregates paper details across providers and marks partial results when one provider fails", async () => {
     const detailsHandler = getToolHandler("paper_get_details");
     const legacyDetailsHandler = getToolHandler("paper-get-details");
