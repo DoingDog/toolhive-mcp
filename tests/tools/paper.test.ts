@@ -538,10 +538,13 @@ describe("paper tool surface", () => {
     });
     expect(result?.ok).toBe(true);
     if (result?.ok) {
-      expect(result.data.results[0]).toMatchObject({
+      const data = result.data as {
+        results: Array<{ title: string | null; doi: string | null }>;
+      };
+      expect(data.results[0]).toMatchObject({
         title: "Attention Is All You Need"
       });
-      expect(result.data.results.some((paper) => paper.doi === "10.1109/TIM.2024.3374300/mm1")).toBe(false);
+      expect(data.results.some((paper) => paper.doi === "10.1109/TIM.2024.3374300/mm1")).toBe(false);
     }
   });
 
@@ -1017,6 +1020,7 @@ describe("paper tool surface", () => {
         paper_id: "10.1000/test",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -1044,6 +1048,7 @@ describe("paper tool surface", () => {
         paper_id: "10.1000/test",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -1071,6 +1076,7 @@ describe("paper tool surface", () => {
         paper_id: "10.3390/make6040126",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -1098,6 +1104,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W1234567890",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -1125,6 +1132,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W4404263292",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -1152,6 +1160,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W4404263292",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -1203,6 +1212,7 @@ describe("paper tool surface", () => {
             reference: [
               {
                 DOI: "10.5555/reference-doi",
+                "article-title": "Fallback Reference Title",
                 year: "2021",
                 author: "Ada Lovelace",
                 "journal-title": "Journal of Fallbacks"
@@ -1374,6 +1384,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W1234567890",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: []
       }
     });
@@ -1434,7 +1445,7 @@ describe("paper normalization merge", () => {
         venue: "Journal of Tests",
         doi: "10.1000/test",
         arxiv_id: null,
-        paper_id: "10.1000/test",
+        paper_id: "W123",
         source_links: ["https://doi.org/10.1000/test", "https://openalex.org/W123"],
         download_links: ["https://example.com/paper.pdf"],
         open_access: true,

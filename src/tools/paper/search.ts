@@ -61,7 +61,8 @@ async function hydrateRelatedResults(papers: NormalizedPaper[], limit = 5): Prom
       continue;
     }
 
-    const needsHydration = paper.doi !== null
+    const doi = paper.doi;
+    const needsHydration = doi !== null
       && hydrationCount < limit
       && (paper.title === null || paper.authors.length === 0 || paper.venue === null);
 
@@ -70,7 +71,7 @@ async function hydrateRelatedResults(papers: NormalizedPaper[], limit = 5): Prom
     }
 
     try {
-      const detail = await fetchCrossrefDetails(paper.doi);
+      const detail = await fetchCrossrefDetails(doi);
       if (detail.paper) {
         hydratedPapers[index] = mergePaperResults([paper, detail.paper])[0] ?? paper;
       }
@@ -454,7 +455,7 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
       fetchOpenAlexDetails(classification.doi)
     ]);
 
-    const providers: ProviderPaperSearchResult["provider"][] = [];
+    const providers: PaperProvider[] = [];
     const papers: NormalizedPaper[] = [];
     let partial = false;
 

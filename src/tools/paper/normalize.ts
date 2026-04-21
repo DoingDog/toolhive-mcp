@@ -40,7 +40,8 @@ export function normalizeSearchTitleKey(value: string | null): string | null {
 
 export function isAuxiliaryPaperRecord(paper: NormalizedPaper): boolean {
   const normalizedDoi = normalizeDoi(paper.doi);
-  return AUXILIARY_TITLE_PATTERN.test(paper.title) || (normalizedDoi !== null && /\/mm\d+$/i.test(normalizedDoi));
+  const title = paper.title ?? "";
+  return AUXILIARY_TITLE_PATTERN.test(title) || (normalizedDoi !== null && /\/mm\d+$/i.test(normalizedDoi));
 }
 
 export function scorePaperForQuery(paper: NormalizedPaper, query: string): number {
