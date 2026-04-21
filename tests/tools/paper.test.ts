@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getToolHandler } from "../../src/mcp/tool-manifest";
 import { classifyRelatedPaperId } from "../../src/tools/paper/search";
 import { normalizeArxivEntry } from "../../src/tools/paper/providers/arxiv";
@@ -7,10 +7,6 @@ import { normalizeOpenAlexWork } from "../../src/tools/paper/providers/openalex"
 import { normalizeEuropePmcResult } from "../../src/tools/paper/providers/pubmed";
 import { lookupUnpaywallByDoi } from "../../src/tools/paper/providers/unpaywall";
 import { mergePaperResults } from "../../src/tools/paper/normalize";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 describe("arXiv paper provider", () => {
   it("normalizes arxiv id, title, abstract, and provider into the shared paper shape", () => {
@@ -428,6 +424,50 @@ describe("paper tool surface", () => {
           reference_count: null,
           provider: "openalex"
         }
+      }
+    });
+  });
+
+  it("hydrates arXiv authors through the paper_get_details fetch path", async () => {
+    const detailsHandler = getToolHandler("paper_get_details");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v5</id>
+    <title>Attention Is All You Need</title>
+    <summary>Transformer abstract</summary>
+    <author><name>Ashish Vaswani</name></author>
+    <author><name>Noam Shazeer</name></author>
+  </entry>
+</feed>`,
+          { status: 200, headers: { "content-type": "application/xml" } }
+        );
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(detailsHandler?.({ arxiv_id: "1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: {
+        paper_id: "1706.03762",
+        providers: ["arxiv"],
+        partial: false,
+        result: expect.objectContaining({
+          authors: ["Ashish Vaswani", "Noam Shazeer"]
+        })
       }
     });
   });

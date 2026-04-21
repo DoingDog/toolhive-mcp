@@ -316,10 +316,13 @@ async function fetchArxivDetails(identifier: string): Promise<ProviderPaperResul
   const id = entryBody.match(/<id>([\s\S]*?)<\/id>/i)?.[1]?.trim() ?? null;
   const title = entryBody.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
   const summary = entryBody.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim() ?? null;
+  const authors = Array.from(entryBody.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/gi))
+    .map((match) => match[1]?.trim() ?? "")
+    .filter((author) => author.length > 0);
 
   return {
     provider: "arxiv",
-    paper: normalizeArxivEntry({ id, title, summary })
+    paper: normalizeArxivEntry({ id, title, summary, authors })
   };
 }
 
