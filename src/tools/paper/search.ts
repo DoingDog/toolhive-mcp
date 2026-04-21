@@ -1,6 +1,6 @@
 import { internalError, validationError } from "../../lib/errors";
 import type { ToolExecutionResult } from "../../mcp/result";
-import { mergePaperResults } from "./normalize";
+import { isAuxiliaryPaperRecord, mergePaperResults, normalizeSearchTitleKey, scorePaperForQuery } from "./normalize";
 import { normalizeArxivEntry } from "./providers/arxiv";
 import { normalizeCrossrefReference, normalizeCrossrefWork } from "./providers/crossref";
 import { normalizeOpenAlexWork } from "./providers/openalex";
@@ -32,9 +32,64 @@ type ProviderPaperResult = {
 };
 
 type ProviderPaperSearchResult = {
-  provider: Extract<PaperProvider, "crossref" | "openalex">;
+  provider: Extract<PaperProvider, "crossref" | "openalex" | "arxiv">;
   papers: NormalizedPaper[];
 };
+
+function scoreRelatedPaperCompleteness(paper: NormalizedPaper): number {
+  return [
+    paper.title,
+    paper.abstract,
+    paper.venue,
+    paper.doi,
+    paper.arxiv_id,
+    paper.year,
+    paper.open_access,
+    paper.citation_count,
+    paper.reference_count
+  ].filter((value) => value !== null).length
+    + paper.authors.filter((author) => author.trim().length > 0).length;
+}
+
+async function hydrateRelatedResults(papers: NormalizedPaper[], limit = 5): Promise<NormalizedPaper[]> {
+  const hydratedPapers = [...papers];
+  let hydrationCount = 0;
+
+  for (let index = 0; index < hydratedPapers.length; index += 1) {
+    const paper = hydratedPapers[index];
+    if (!paper) {
+      continue;
+    }
+
+    const doi = paper.doi;
+    const needsHydration = doi !== null
+      && hydrationCount < limit
+      && (paper.title === null || paper.authors.length === 0 || paper.venue === null);
+
+    if (!needsHydration) {
+      continue;
+    }
+
+    try {
+      const detail = await fetchCrossrefDetails(doi);
+      if (detail.paper) {
+        hydratedPapers[index] = mergePaperResults([paper, detail.paper])[0] ?? paper;
+      }
+    } catch {
+      // keep original paper when hydration fails
+    }
+
+    hydrationCount += 1;
+  }
+
+  return hydratedPapers;
+}
+
+function finalizeRelatedResults(papers: NormalizedPaper[]): NormalizedPaper[] {
+  return mergePaperResults(papers)
+    .filter((paper) => paper.title !== null)
+    .sort((left, right) => scoreRelatedPaperCompleteness(right) - scoreRelatedPaperCompleteness(left));
+}
 
 function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -47,6 +102,51 @@ function normalizeNonEmptyString(value: unknown): string | null {
 
 function looksLikeDoi(value: string): boolean {
   return /^10\.\S+\/\S+$/i.test(value.trim());
+}
+
+function looksLikeArxivId(value: string): boolean {
+  const normalizedValue = value.trim();
+  return /^(?:arxiv:)?(?:\d{4}\.\d{4,5}|[a-z.-]+\/\d{7})(?:v\d+)?$/i.test(normalizedValue);
+}
+
+type PaperQueryClassification =
+  | { kind: "doi"; doi: string }
+  | { kind: "arxiv_id"; arxivId: string; doi?: string }
+  | { kind: "text"; query: string };
+
+function normalizeArxivIdentifier(value: string): string {
+  return value.trim().replace(/^arxiv:/i, "").replace(/v\d+$/i, "");
+}
+
+function classifyPaperQuery(query: string): PaperQueryClassification {
+  const normalizedQuery = query.trim();
+
+  if (/^10\.48550\/arxiv\./i.test(normalizedQuery)) {
+    return {
+      kind: "arxiv_id",
+      arxivId: normalizeArxivIdentifier(normalizedQuery.replace(/^10\.48550\/arxiv\./i, "")),
+      doi: normalizedQuery
+    };
+  }
+
+  if (looksLikeArxivId(normalizedQuery)) {
+    return {
+      kind: "arxiv_id",
+      arxivId: normalizeArxivIdentifier(normalizedQuery)
+    };
+  }
+
+  if (looksLikeDoi(normalizedQuery)) {
+    return {
+      kind: "doi",
+      doi: normalizedQuery
+    };
+  }
+
+  return {
+    kind: "text",
+    query: normalizedQuery
+  };
 }
 
 type RelatedPaperIdClassification =
@@ -272,12 +372,26 @@ async function fetchOpenAlexWorkByDoi(doi: string): Promise<OpenAlexWorkLookupRe
   return parseOpenAlexWorkLookup(firstResult as Record<string, unknown>, fallbackResponse.status);
 }
 
-async function fetchOpenAlexWorksByIds(ids: string[]): Promise<NormalizedPaper[]> {
-  const papers = await Promise.all(
+async function fetchOpenAlexWorksByIds(ids: string[]): Promise<{ papers: NormalizedPaper[]; partial: boolean }> {
+  const results = await Promise.allSettled(
     ids.map(async (id) => (await fetchOpenAlexWorkById(id)).paper)
   );
 
-  return papers.filter((paper): paper is NormalizedPaper => paper !== null);
+  const papers: NormalizedPaper[] = [];
+  let partial = false;
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      partial = true;
+      return;
+    }
+
+    if (result.value) {
+      papers.push(result.value);
+    }
+  });
+
+  return { papers, partial };
 }
 
 async function fetchCrossrefReferences(doi: string): Promise<NormalizedPaper[]> {
@@ -294,6 +408,22 @@ async function fetchCrossrefReferences(doi: string): Promise<NormalizedPaper[]> 
     .filter((paper): paper is NormalizedPaper => paper !== null);
 }
 
+function parseArxivEntries(xml: string): NormalizedPaper[] {
+  return Array.from(xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi))
+    .map((match) => {
+      const entryBody = match[1] ?? "";
+      const id = entryBody.match(/<id>([\s\S]*?)<\/id>/i)?.[1]?.trim() ?? null;
+      const title = entryBody.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
+      const summary = entryBody.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim() ?? null;
+      const authors = Array.from(entryBody.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/gi))
+        .map((authorMatch) => authorMatch[1]?.trim() ?? "")
+        .filter((author) => author.length > 0);
+
+      return normalizeArxivEntry({ id, title, summary, authors });
+    })
+    .filter((paper): paper is NormalizedPaper => paper !== null);
+}
+
 async function fetchArxivDetails(identifier: string): Promise<ProviderPaperResult> {
   const response = await fetch(
     `https://export.arxiv.org/api/query?search_query=id:${encodeURIComponent(identifier)}&start=0&max_results=1`,
@@ -303,23 +433,27 @@ async function fetchArxivDetails(identifier: string): Promise<ProviderPaperResul
     throw new Error(`arXiv API returned ${response.status}`);
   }
 
-  const xml = await response.text();
-  const entryMatch = xml.match(/<entry>([\s\S]*?)<\/entry>/i);
-  if (!entryMatch) {
-    return {
-      provider: "arxiv",
-      paper: null
-    };
+  return {
+    provider: "arxiv",
+    paper: parseArxivEntries(await response.text())[0] ?? null
+  };
+}
+
+async function searchArxivExactTitle(query: string): Promise<ProviderPaperSearchResult> {
+  const response = await fetch(
+    `https://export.arxiv.org/api/query?search_query=ti:%22${encodeURIComponent(query)}%22&start=0&max_results=5`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw new Error(`arXiv API returned ${response.status}`);
   }
 
-  const entryBody = entryMatch[1] ?? "";
-  const id = entryBody.match(/<id>([\s\S]*?)<\/id>/i)?.[1]?.trim() ?? null;
-  const title = entryBody.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
-  const summary = entryBody.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]?.trim() ?? null;
+  const normalizedQuery = normalizeSearchTitleKey(query);
 
   return {
     provider: "arxiv",
-    paper: normalizeArxivEntry({ id, title, summary })
+    papers: parseArxivEntries(await response.text())
+      .filter((paper) => normalizeSearchTitleKey(paper.title) === normalizedQuery)
   };
 }
 
@@ -331,18 +465,125 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
     return validationError("query must be a non-empty string");
   }
 
+  const classification = classifyPaperQuery(query);
+
+  if (classification.kind === "arxiv_id") {
+    let arxivLookupFailed = false;
+
+    try {
+      const providerResult = await fetchArxivDetails(classification.arxivId);
+      if (providerResult.paper) {
+        return {
+          ok: true,
+          data: {
+            query,
+            providers: [providerResult.provider],
+            partial: false,
+            results: [providerResult.paper]
+          }
+        };
+      }
+
+      arxivLookupFailed = classification.doi !== undefined;
+    } catch {
+      arxivLookupFailed = classification.doi !== undefined;
+    }
+
+    if (classification.doi) {
+      const providerResults = await Promise.allSettled([
+        fetchCrossrefDetails(classification.doi),
+        fetchOpenAlexDetails(classification.doi)
+      ]);
+
+      const providers: PaperProvider[] = [];
+      const papers: NormalizedPaper[] = [];
+
+      providerResults.forEach((result) => {
+        if (result.status === "rejected") {
+          return;
+        }
+
+        if (!result.value.paper) {
+          return;
+        }
+
+        providers.push(result.value.provider);
+        papers.push(result.value.paper);
+      });
+
+      return {
+        ok: true,
+        data: {
+          query,
+          providers,
+          partial: arxivLookupFailed,
+          results: mergePaperResults(papers)
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      data: {
+        query,
+        providers: [],
+        partial: false,
+        results: []
+      }
+    };
+  }
+
+  if (classification.kind === "doi") {
+    const providerResults = await Promise.allSettled([
+      fetchCrossrefDetails(classification.doi),
+      fetchOpenAlexDetails(classification.doi)
+    ]);
+
+    const providers: PaperProvider[] = [];
+    const papers: NormalizedPaper[] = [];
+    let partial = false;
+
+    providerResults.forEach((result) => {
+      if (result.status === "rejected") {
+        partial = true;
+        return;
+      }
+
+      if (!result.value.paper) {
+        return;
+      }
+
+      providers.push(result.value.provider);
+      papers.push(result.value.paper);
+    });
+
+    return {
+      ok: true,
+      data: {
+        query,
+        providers,
+        partial,
+        results: mergePaperResults(papers)
+      }
+    };
+  }
+
   const providerResults = await Promise.allSettled([
-    searchCrossrefWorks(query),
-    searchOpenAlexWorks(query)
+    searchCrossrefWorks(classification.query),
+    searchOpenAlexWorks(classification.query)
   ]);
 
   const providers: ProviderPaperSearchResult["provider"][] = [];
   const papers: NormalizedPaper[] = [];
   let partial = false;
+  let openAlexSearchRejected = false;
 
-  providerResults.forEach((result) => {
+  providerResults.forEach((result, index) => {
     if (result.status === "rejected") {
       partial = true;
+      if (index === 1) {
+        openAlexSearchRejected = true;
+      }
       return;
     }
 
@@ -350,13 +591,29 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
     papers.push(...result.value.papers);
   });
 
+  if (openAlexSearchRejected) {
+    try {
+      const arxivFallback = await searchArxivExactTitle(classification.query);
+      if (arxivFallback.papers.length > 0) {
+        providers.push(arxivFallback.provider);
+        papers.push(...arxivFallback.papers);
+      }
+    } catch {
+      // keep crossref-only degraded results when arXiv fallback fails
+    }
+  }
+
+  const results = mergePaperResults(papers)
+    .filter((paper) => !isAuxiliaryPaperRecord(paper))
+    .sort((left, right) => scorePaperForQuery(right, classification.query) - scorePaperForQuery(left, classification.query));
+
   return {
     ok: true,
     data: {
       query,
       providers,
       partial,
-      results: mergePaperResults(papers)
+      results
     }
   };
 }
@@ -454,14 +711,20 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
     }
   } catch (error) {
     if (classification.kind === "doi") {
+      const lookupError = normalizeOpenAlexLookupError(error, "seed_resolution");
+
       try {
-        const fallbackResults = mergePaperResults(await fetchCrossrefReferences(classification.value));
+        const fallbackResults = finalizeRelatedResults(
+          await hydrateRelatedResults(await fetchCrossrefReferences(classification.value))
+        );
         return {
           ok: true,
           data: {
             paper_id: classification.value,
             providers: ["crossref"],
             partial: true,
+            relationship_type: "reference",
+            degraded_reason: lookupError.code,
             results: fallbackResults
           }
         };
@@ -474,16 +737,20 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
   }
 
   try {
-    const relatedResults = lookup.relatedWorkIds.length > 0
-      ? mergePaperResults(await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10)))
-      : [];
+    const relatedLookup = lookup.relatedWorkIds.length > 0
+      ? await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10))
+      : { papers: [], partial: false };
+    const relatedResults = finalizeRelatedResults(
+      await hydrateRelatedResults(relatedLookup.papers)
+    );
 
     return {
       ok: true,
       data: {
         paper_id: classification.kind === "doi" ? classification.value : lookup.workId,
         providers: ["openalex"],
-        partial: false,
+        partial: relatedLookup.partial,
+        relationship_type: "related",
         results: relatedResults
       }
     };

@@ -5,7 +5,7 @@ import { handleCalc } from "../../src/tools/native/calc";
 import { handleWhoami } from "../../src/tools/native/ip";
 import { handleTime } from "../../src/tools/native/time";
 import { handleWeather } from "../../src/tools/native/weather";
-import { handleWebfetch } from "../../src/tools/native/webfetch";
+import { handleWebfetch, renderFetchedBody } from "../../src/tools/native/webfetch";
 
 const context = {
   env: {},
@@ -118,11 +118,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/hello",
         body: "hello",
-          provider_used: "webfetch",
-          content_length: 5,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 5,
+        truncated: false,
+        cached: false,
+        partial: false,
         headers: expect.objectContaining({
           "content-type": "text/plain",
           "x-test": "ok"
@@ -161,6 +165,10 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/final",
         body: "redirected",
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
         provider_used: "webfetch",
         content_length: 10,
         truncated: false,
@@ -251,11 +259,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/large",
         body: "你",
-          provider_used: "webfetch",
-          content_length: 4,
-          truncated: true,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 4,
+        truncated: true,
+        cached: false,
+        partial: false,
       }
     });
   });
@@ -315,11 +327,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/stream",
         body: "abc",
-          provider_used: "webfetch",
-          content_length: 9,
-          truncated: true,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 9,
+        truncated: true,
+        cached: false,
+        partial: false,
       }
     });
     expect(cancelCalled || !responseFullyRead).toBe(true);
@@ -362,10 +378,14 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/unknown-length",
         body: "abc",
-          provider_used: "webfetch",
-          truncated: true,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        truncated: true,
+        cached: false,
+        partial: false,
       }
     });
     expect(result.ok).toBe(true);
@@ -374,7 +394,7 @@ describe("native tools", () => {
     }
   });
 
-  it("webfetch converts HTML to markdown when requested", async () => {
+  it("webfetch reports requested and actual format when HTML converts to markdown", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -386,32 +406,39 @@ describe("native tools", () => {
     );
 
     const result = await handleWebfetch(
-      {
-        url: "https://example.com/article",
-        format: "markdown"
-      },
+      { url: "https://example.com/article", format: "markdown" },
       context
     );
 
     expect(result).toEqual({
       ok: true,
-      data: {
-        status: 200,
-        url: "https://example.com/article",
+      data: expect.objectContaining({
         body: expect.stringContaining("# Hello"),
-          provider_used: "webfetch",
-          content_length: 45,
-          truncated: false,
-          cached: false,
-          partial: false,
-      }
+        requested_format: "markdown",
+        actual_format: "markdown",
+        extracted: true,
+        fallback_reason: null
+      })
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({
-        body: expect.stringContaining("World")
-      });
-    }
+  });
+
+  it("renderFetchedBody falls back to text when markdown conversion throws", () => {
+    expect(
+      renderFetchedBody(
+        "<article><h1>Hello</h1><p>World</p></article>",
+        "text/html; charset=utf-8",
+        "markdown",
+        () => {
+          throw new Error("conversion failed");
+        }
+      )
+    ).toEqual({
+      body: "Hello\n\nWorld",
+      requested_format: "markdown",
+      actual_format: "text",
+      extracted: false,
+      fallback_reason: "markdown_conversion_failed"
+    });
   });
 
   it("webfetch treats XHTML responses as HTML for markdown conversion", async () => {
@@ -439,11 +466,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/xhtml",
         body: expect.stringContaining("# Hello"),
-          provider_used: "webfetch",
-          content_length: 45,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "markdown",
+        extracted: true,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 45,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
     if (result.ok) {
@@ -477,11 +508,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/article",
         body: expect.stringContaining("# Hello"),
-          provider_used: "webfetch",
-          content_length: 57,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "markdown",
+        extracted: true,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 57,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
     expect(result.ok).toBe(true);
@@ -520,13 +555,49 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/article",
         body: "Hello\n\nWorld\n\nAgain",
-          provider_used: "webfetch",
-          content_length: 57,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "text",
+        actual_format: "text",
+        extracted: true,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 57,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
+  });
+
+  it("webfetch reports non-html payloads as actual text even when html is requested", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("{\"ok\":true}", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/data",
+        format: "html"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        requested_format: "html",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null
+      })
+    });
+    if (result.ok) {
+      const data = result.data as { body: string };
+      expect(data.body).toBe('{"ok":true}');
+    }
   });
 
   it("webfetch returns raw HTML unchanged when format is html", async () => {
@@ -554,11 +625,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/article",
         body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>",
-          provider_used: "webfetch",
-          content_length: 57,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "html",
+        actual_format: "html",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 57,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
   });
@@ -580,11 +655,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/data",
         body: '{"ok":true}',
-          provider_used: "webfetch",
-          content_length: 11,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "markdown",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 11,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
 
@@ -596,11 +675,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/data",
         body: '{"ok":true}',
-          provider_used: "webfetch",
-          content_length: 11,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "text",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 11,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
 
@@ -612,11 +695,15 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/data",
         body: '{"ok":true}',
-          provider_used: "webfetch",
-          content_length: 11,
-          truncated: false,
-          cached: false,
-          partial: false,
+        requested_format: "html",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null,
+        provider_used: "webfetch",
+        content_length: 11,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
 

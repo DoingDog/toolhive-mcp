@@ -1,5 +1,7 @@
 import type { NormalizedPaper } from "./types";
 
+const AUXILIARY_TITLE_PATTERN = /\b(supplement|supplementary|component|attachment|media|appendix)\b/i;
+
 function normalizeText(value: string | null): string | null {
   if (typeof value !== "string") {
     return null;
@@ -30,6 +32,29 @@ function normalizeArxivId(arxivId: string | null): string | null {
 function normalizeKeyPart(value: string | null): string | null {
   const normalizedValue = normalizeText(value)?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return normalizedValue && normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+export function normalizeSearchTitleKey(value: string | null): string | null {
+  return normalizeKeyPart(value)?.replace(/\b(the|a|an)\b/g, " ").replace(/\s+/g, " ").trim() || null;
+}
+
+export function isAuxiliaryPaperRecord(paper: NormalizedPaper): boolean {
+  const normalizedDoi = normalizeDoi(paper.doi);
+  const title = paper.title ?? "";
+  return AUXILIARY_TITLE_PATTERN.test(title) || (normalizedDoi !== null && /\/mm\d+$/i.test(normalizedDoi));
+}
+
+export function scorePaperForQuery(paper: NormalizedPaper, query: string): number {
+  const normalizedQuery = normalizeSearchTitleKey(query);
+  const normalizedTitle = normalizeSearchTitleKey(paper.title);
+  const exactTitleScore = normalizedQuery !== null && normalizedTitle === normalizedQuery ? 1_000_000 : 0;
+  const titlePrefixScore = exactTitleScore === 0 && normalizedQuery !== null && normalizedTitle?.startsWith(normalizedQuery) ? 100_000 : 0;
+  const exactTitleArxivBonus = exactTitleScore > 0 && paper.arxiv_id !== null ? 25_000 : 0;
+  const completenessScore = scorePaperCompleteness(paper) * 1_000;
+  const citationScore = Math.min(paper.citation_count ?? 0, 500_000);
+  const yearScore = paper.year === null ? 0 : Math.max(0, 2100 - paper.year);
+
+  return exactTitleScore + titlePrefixScore + exactTitleArxivBonus + completenessScore + citationScore + yearScore;
 }
 
 function buildFallbackKey(paper: NormalizedPaper): string | null {
@@ -89,8 +114,51 @@ function chooseBetterString(current: string | null, candidate: string | null): s
   return normalizedCandidate.length > normalizedCurrent.length ? normalizedCandidate : normalizedCurrent;
 }
 
+function isGarbageVenue(value: string | null): boolean {
+  const normalizedValue = normalizeText(value);
+  if (normalizedValue === null) {
+    return false;
+  }
+
+  return /^\d{4,}(?:[ ._-]?\d{4,})+$/.test(normalizedValue);
+}
+
+function scoreAuthors(authors: string[]): number {
+  const normalizedAuthors = authors
+    .map((author) => author.trim())
+    .filter((author) => author.length > 0);
+
+  return normalizedAuthors.length * 100
+    + normalizedAuthors.reduce((total, author) => total + author.split(/\s+/).filter((token) => token.length > 0).length, 0);
+}
+
 function chooseBetterAuthors(current: string[], candidate: string[]): string[] {
-  return candidate.length > current.length ? candidate.map((author) => author.trim()).filter((author) => author.length > 0) : current.map((author) => author.trim()).filter((author) => author.length > 0);
+  const normalizedCurrent = current.map((author) => author.trim()).filter((author) => author.length > 0);
+  const normalizedCandidate = candidate.map((author) => author.trim()).filter((author) => author.length > 0);
+
+  return scoreAuthors(normalizedCandidate) > scoreAuthors(normalizedCurrent) ? normalizedCandidate : normalizedCurrent;
+}
+
+function chooseBetterVenue(current: string | null, candidate: string | null): string | null {
+  const normalizedCurrent = normalizeText(current);
+  const normalizedCandidate = normalizeText(candidate);
+
+  if (normalizedCurrent === null) {
+    return normalizedCandidate;
+  }
+
+  if (normalizedCandidate === null) {
+    return normalizedCurrent;
+  }
+
+  const currentIsGarbage = isGarbageVenue(normalizedCurrent);
+  const candidateIsGarbage = isGarbageVenue(normalizedCandidate);
+
+  if (currentIsGarbage !== candidateIsGarbage) {
+    return currentIsGarbage ? normalizedCandidate : normalizedCurrent;
+  }
+
+  return chooseBetterString(normalizedCurrent, normalizedCandidate);
 }
 
 function chooseBetterNumber(current: number | null, candidate: number | null): number | null {
@@ -149,20 +217,28 @@ function chooseProvider(current: NormalizedPaper, candidate: NormalizedPaper): N
   return scorePaperQuality(candidate) > scorePaperQuality(current) ? candidate.provider : current.provider;
 }
 
+function isOpenAlexPaperId(paperId: string | null): boolean {
+  if (paperId === null) {
+    return false;
+  }
+
+  return /^(?:https?:\/\/openalex\.org\/)?W\d+$/i.test(paperId);
+}
+
 function mergeTwoPapers(current: NormalizedPaper, candidate: NormalizedPaper): NormalizedPaper {
   const doi = normalizeDoi(current.doi) ?? normalizeDoi(candidate.doi);
   const arxivId = normalizeArxivId(current.arxiv_id) ?? normalizeArxivId(candidate.arxiv_id);
   const currentPaperId = normalizeText(current.paper_id);
   const candidatePaperId = normalizeText(candidate.paper_id);
   const fallbackPaperId = currentPaperId ?? candidatePaperId;
-  const openAlexPaperId = [currentPaperId, candidatePaperId].find((paperId) => paperId?.includes("openalex.org/W")) ?? null;
+  const openAlexPaperId = [currentPaperId, candidatePaperId].find(isOpenAlexPaperId) ?? null;
 
   return {
     title: chooseBetterString(current.title, candidate.title),
     authors: chooseBetterAuthors(current.authors, candidate.authors),
     abstract: chooseBetterString(current.abstract, candidate.abstract),
     year: chooseBetterNumber(current.year, candidate.year),
-    venue: chooseBetterString(current.venue, candidate.venue),
+    venue: chooseBetterVenue(current.venue, candidate.venue),
     doi,
     arxiv_id: arxivId,
     paper_id: openAlexPaperId ?? doi ?? arxivId ?? fallbackPaperId,

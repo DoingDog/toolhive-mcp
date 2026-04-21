@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getToolHandler } from "../../src/mcp/tool-manifest";
 import { classifyRelatedPaperId } from "../../src/tools/paper/search";
 import { normalizeArxivEntry } from "../../src/tools/paper/providers/arxiv";
@@ -7,10 +7,6 @@ import { normalizeOpenAlexWork } from "../../src/tools/paper/providers/openalex"
 import { normalizeEuropePmcResult } from "../../src/tools/paper/providers/pubmed";
 import { lookupUnpaywallByDoi } from "../../src/tools/paper/providers/unpaywall";
 import { mergePaperResults } from "../../src/tools/paper/normalize";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 describe("arXiv paper provider", () => {
   it("normalizes arxiv id, title, abstract, and provider into the shared paper shape", () => {
@@ -34,6 +30,26 @@ describe("arXiv paper provider", () => {
       open_access: true,
       citation_count: null,
       reference_count: null,
+      provider: "arxiv"
+    });
+  });
+
+  it("normalizes arXiv authors instead of returning an empty list", () => {
+    expect(
+      normalizeArxivEntry({
+        id: "http://arxiv.org/abs/1706.03762v7",
+        title: "Attention Is All You Need",
+        summary: "Transformer abstract",
+        authors: [
+          "Ashish Vaswani",
+          "Noam Shazeer",
+          "Niki Parmar"
+        ]
+      })
+    ).toMatchObject({
+      arxiv_id: "1706.03762",
+      title: "Attention Is All You Need",
+      authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar"],
       provider: "arxiv"
     });
   });
@@ -92,6 +108,41 @@ describe("Crossref paper provider", () => {
       provider: "crossref"
     });
   });
+
+  it("normalizes Crossref authors, venue, and counts into the shared paper shape", () => {
+    expect(
+      normalizeCrossrefWork({
+        DOI: "10.1109/CVPR.2016.90",
+        title: ["Deep Residual Learning for Image Recognition"],
+        author: [
+          { given: "Kaiming", family: "He" },
+          { given: "Xiangyu", family: "Zhang" },
+          { given: "Shaoqing", family: "Ren" },
+          { given: "Jian", family: "Sun" }
+        ],
+        event: { name: "CVPR 2016" },
+        "container-title": ["Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition"],
+        issued: { "date-parts": [[2016]] },
+        "is-referenced-by-count": 250000,
+        "reference-count": 41
+      })
+    ).toEqual({
+      title: "Deep Residual Learning for Image Recognition",
+      authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+      abstract: null,
+      year: 2016,
+      venue: "CVPR 2016",
+      doi: "10.1109/CVPR.2016.90",
+      arxiv_id: null,
+      paper_id: "10.1109/CVPR.2016.90",
+      source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+      download_links: [],
+      open_access: null,
+      citation_count: 250000,
+      reference_count: 41,
+      provider: "crossref"
+    });
+  });
 });
 
 describe("OpenAlex paper provider", () => {
@@ -117,6 +168,44 @@ describe("OpenAlex paper provider", () => {
       open_access: null,
       citation_count: null,
       reference_count: null,
+      provider: "openalex"
+    });
+  });
+
+  it("normalizes OpenAlex authorships, venue, abstract, and counts", () => {
+    expect(
+      normalizeOpenAlexWork({
+        id: "https://openalex.org/W2046618432",
+        doi: "https://doi.org/10.1038/nature14539",
+        title: "Deep learning",
+        publication_year: 2015,
+        authorships: [
+          { author: { display_name: "Yann LeCun" } },
+          { author: { display_name: "Yoshua Bengio" } },
+          { author: { display_name: "Geoffrey Hinton" } }
+        ],
+        primary_location: {
+          source: { display_name: "Nature" }
+        },
+        abstract_inverted_index: {
+          Deep: [0],
+          learning: [1],
+          transforms: [2],
+          "AI.": [3]
+        },
+        cited_by_count: 123456,
+        referenced_works_count: 321
+      })
+    ).toMatchObject({
+      title: "Deep learning",
+      authors: ["Yann LeCun", "Yoshua Bengio", "Geoffrey Hinton"],
+      abstract: "Deep learning transforms AI.",
+      year: 2015,
+      venue: "Nature",
+      doi: "10.1038/nature14539",
+      paper_id: "https://openalex.org/W2046618432",
+      citation_count: 123456,
+      reference_count: 321,
       provider: "openalex"
     });
   });
@@ -258,6 +347,355 @@ describe("paper tool surface", () => {
     expect(getToolHandler("paper_get_open_access")).toBeTypeOf("function");
   });
 
+  it("routes DOI and arXiv DOI queries through exact lookup instead of generic full-text search", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works/10.48550%2FarXiv.1706.03762") {
+        return Response.json({
+          message: {
+            DOI: "10.48550/arXiv.1706.03762",
+            title: ["Attention Is All You Need"],
+            issued: { "date-parts": [[2017]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.48550%2FarXiv.1706.03762") {
+        return Response.json({ results: [] });
+      }
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response(`
+        <feed>
+          <entry>
+            <id>http://arxiv.org/abs/1706.03762v7</id>
+            <title>Attention Is All You Need</title>
+            <summary>Transformer abstract</summary>
+            <author><name>Ashish Vaswani</name></author>
+          </entry>
+        </feed>
+      `, { status: 200 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.48550/arXiv.1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.48550/arXiv.1706.03762",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Attention Is All You Need"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.48550%2FarXiv.1706.03762&rows=10",
+      expect.anything()
+    );
+  });
+
+  it("falls back from arxiv doi exact lookup to doi providers when arxiv is unavailable", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response("service unavailable", { status: 503 });
+      }
+
+      if (url === "https://api.crossref.org/works/10.48550%2FarXiv.1706.03762") {
+        return Response.json({
+          message: {
+            DOI: "10.48550/arXiv.1706.03762",
+            title: ["Attention Is All You Need"],
+            issued: { "date-parts": [[2017]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.48550%2FarXiv.1706.03762") {
+        return Response.json({ results: [] });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.48550/arXiv.1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.48550/arXiv.1706.03762",
+        partial: true,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need"
+          })
+        ])
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.48550%2FarXiv.1706.03762&rows=10",
+      expect.anything()
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.openalex.org/works?search=10.48550%2FarXiv.1706.03762&per-page=10",
+      expect.anything()
+    );
+  });
+
+  it("routes plain DOI queries through exact lookup instead of generic full-text search", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works/10.1000%2Ftest") {
+        return Response.json({
+          message: {
+            DOI: "10.1000/test",
+            title: ["Plain DOI Paper"],
+            issued: { "date-parts": [[2024]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.1000%2Ftest") {
+        return Response.json({
+          results: [
+            {
+              id: "https://openalex.org/W1234567890",
+              doi: "https://doi.org/10.1000/test",
+              title: "Plain DOI Paper",
+              publication_year: 2024
+            }
+          ]
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.1000/test" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.1000/test",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Plain DOI Paper",
+            doi: "10.1000/test"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.1000%2Ftest&rows=10",
+      expect.anything()
+    );
+  });
+
+  it("ranks exact-title canonical papers ahead of derivative and supplementary records", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=Attention%20Is%20All%20You%20Need&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1109/TIM.2024.3374300/mm1",
+                title: ["Spectrum-BERT: supplementary material"],
+                issued: { "date-parts": [[2024]] }
+              },
+              {
+                DOI: "10.5555/attention-2025",
+                title: ["Is Attention All You Need?"],
+                issued: { "date-parts": [[2025]] }
+              },
+              {
+                DOI: "10.5555/attention-2017",
+                title: ["Attention Is All You Need"],
+                issued: { "date-parts": [[2017]] },
+                author: [{ given: "Ashish", family: "Vaswani" }],
+                "is-referenced-by-count": 100
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=Attention%20Is%20All%20You%20Need&per-page=10") {
+        return Response.json({
+          results: [
+            {
+              id: "https://openalex.org/W2741809807",
+              doi: "https://doi.org/10.5555/attention-2017",
+              title: "Attention Is All You Need",
+              publication_year: 2017,
+              authorships: [{ author: { display_name: "Ashish Vaswani" } }],
+              primary_location: { source: { display_name: "NeurIPS" } },
+              cited_by_count: 100000,
+              referenced_works_count: 35
+            }
+          ]
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    const result = await handler?.({ query: "Attention Is All You Need" }, context);
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        providers: ["crossref", "openalex"],
+        partial: false,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need",
+            doi: "10.5555/attention-2017"
+          })
+        ])
+      })
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      const data = result.data as {
+        results: Array<{ title: string | null; doi: string | null }>;
+      };
+      expect(data.results[0]).toMatchObject({
+        title: "Attention Is All You Need"
+      });
+      expect(data.results.some((paper) => paper.doi === "10.1109/TIM.2024.3374300/mm1")).toBe(false);
+    }
+  });
+
+  it("falls back to arxiv exact-title search when openalex search is unavailable", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=Attention%20Is%20All%20You%20Need&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.5555/attention-mirror-2025",
+                title: ["Attention Is All You Need"],
+                issued: { "date-parts": [[2025]] },
+                author: [{ given: "Mirror", family: "Author" }],
+                "is-referenced-by-count": 2
+              },
+              {
+                DOI: "10.5555/is-attention-all-you-need-2025",
+                title: ["Is Attention All You Need?"],
+                issued: { "date-parts": [[2025]] },
+                author: [{ given: "Derivative", family: "Author" }],
+                "is-referenced-by-count": 20
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=Attention%20Is%20All%20You%20Need&per-page=10") {
+        return new Response("budget exhausted", { status: 429 });
+      }
+
+      if (url === "https://export.arxiv.org/api/query?search_query=ti:%22Attention%20Is%20All%20You%20Need%22&start=0&max_results=5") {
+        return new Response(`
+          <feed>
+            <entry>
+              <id>http://arxiv.org/abs/1706.03762v7</id>
+              <title>Attention Is All You Need</title>
+              <summary>Transformer paper</summary>
+              <author><name>Ashish Vaswani</name></author>
+              <author><name>Noam Shazeer</name></author>
+            </entry>
+            <entry>
+              <id>http://arxiv.org/abs/2501.00001v1</id>
+              <title>Is Attention All You Need?</title>
+              <summary>Derivative paper</summary>
+              <author><name>Derivative Author</name></author>
+            </entry>
+          </feed>
+        `, { status: 200 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    const result = await handler?.({ query: "Attention Is All You Need" }, context);
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        providers: expect.arrayContaining(["crossref", "arxiv"]),
+        partial: true,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need",
+            arxiv_id: "1706.03762",
+            provider: "arxiv"
+          })
+        ])
+      })
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      const data = result.data as {
+        providers: string[];
+        partial: boolean;
+        results: Array<{ title: string | null; arxiv_id: string | null; provider: string | null }>;
+      };
+      expect(data.providers).toEqual(expect.arrayContaining(["crossref", "arxiv"]));
+      expect(data.partial).toBe(true);
+      expect(data.results[0]).toMatchObject({
+        title: "Attention Is All You Need",
+        arxiv_id: "1706.03762",
+        provider: "arxiv"
+      });
+    }
+  });
+
   it("aggregates paper details across providers and marks partial results when one provider fails", async () => {
     const detailsHandler = getToolHandler("paper_get_details");
     const legacyDetailsHandler = getToolHandler("paper-get-details");
@@ -339,6 +777,50 @@ describe("paper tool surface", () => {
     });
   });
 
+  it("hydrates arXiv authors through the paper_get_details fetch path", async () => {
+    const detailsHandler = getToolHandler("paper_get_details");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v5</id>
+    <title>Attention Is All You Need</title>
+    <summary>Transformer abstract</summary>
+    <author><name>Ashish Vaswani</name></author>
+    <author><name>Noam Shazeer</name></author>
+  </entry>
+</feed>`,
+          { status: 200, headers: { "content-type": "application/xml" } }
+        );
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(detailsHandler?.({ arxiv_id: "1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: {
+        paper_id: "1706.03762",
+        providers: ["arxiv"],
+        partial: false,
+        result: expect.objectContaining({
+          authors: ["Ashish Vaswani", "Noam Shazeer"]
+        })
+      }
+    });
+  });
+
   it("routes paper_get_open_access through Unpaywall", async () => {
     const openAccessHandler = getToolHandler("paper_get_open_access");
     const legacyOpenAccessHandler = getToolHandler("paper-get-open-access");
@@ -374,6 +856,188 @@ describe("paper tool surface", () => {
         open_access: true,
         download_links: ["https://example.com/paper", "https://example.com/paper.pdf"]
       }
+    });
+  });
+
+  it("returns explicit degraded metadata when related falls back to Crossref references", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/https%3A%2F%2Fdoi.org%2F10.5555%2Frate-limited") {
+        return new Response("rate limited", { status: 429 });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.5555%2Frate-limited") {
+        return Response.json({ results: [] });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Frate-limited") {
+        return Response.json({
+          message: {
+            reference: [
+              {
+                DOI: "10.5555/reference-doi",
+                year: "2021",
+                author: "Ada Lovelace",
+                "journal-title": "Journal of Fallbacks"
+              },
+              {
+                DOI: "10.5555/untitled-reference",
+                year: "2020",
+                author: "Grace Hopper"
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Freference-doi") {
+        return Response.json({
+          message: {
+            DOI: "10.5555/reference-doi",
+            title: ["Fallback Reference Title"],
+            author: [{ given: "Ada", family: "Lovelace" }],
+            "container-title": ["Journal of Fallbacks"],
+            issued: { "date-parts": [[2021]] }
+          }
+        });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Funtitled-reference") {
+        return Response.json({
+          message: {
+            DOI: "10.5555/untitled-reference",
+            issued: { "date-parts": [[2020]] }
+          }
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "10.5555/rate-limited" }, context)).resolves.toEqual({
+      ok: true,
+      data: {
+        paper_id: "10.5555/rate-limited",
+        providers: ["crossref"],
+        partial: true,
+        relationship_type: "reference",
+        degraded_reason: "openalex_seed_upstream_failed",
+        results: [
+          {
+            title: "Fallback Reference Title",
+            authors: ["Ada Lovelace"],
+            abstract: null,
+            year: 2021,
+            venue: "Journal of Fallbacks",
+            doi: "10.5555/reference-doi",
+            arxiv_id: null,
+            paper_id: "10.5555/reference-doi",
+            source_links: ["https://doi.org/10.5555/reference-doi"],
+            download_links: [],
+            open_access: null,
+            citation_count: null,
+            reference_count: null,
+            provider: "crossref"
+          }
+        ]
+      }
+    });
+  });
+
+  it("returns related results with explicit relationship_type on the OpenAlex happy path", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: false,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
+    });
+  });
+
+  it("returns partial related results when one OpenAlex related work fetch fails", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999", "https://openalex.org/W998"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related-success",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W998") {
+        return new Response("upstream failure", { status: 500 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: true,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
     });
   });
 
@@ -551,6 +1215,7 @@ describe("paper tool surface", () => {
         paper_id: "10.1000/test",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -578,6 +1243,7 @@ describe("paper tool surface", () => {
         paper_id: "10.1000/test",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -605,6 +1271,7 @@ describe("paper tool surface", () => {
         paper_id: "10.3390/make6040126",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -632,6 +1299,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W1234567890",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper",
@@ -659,6 +1327,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W4404263292",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -686,6 +1355,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W4404263292",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: [
           {
             title: "Related Paper for Make",
@@ -740,8 +1410,12 @@ describe("paper tool surface", () => {
                 "article-title": "Fallback Reference Title",
                 year: "2021",
                 author: "Ada Lovelace",
-                volume: "42",
                 "journal-title": "Journal of Fallbacks"
+              },
+              {
+                DOI: "10.5555/untitled-reference",
+                year: "2020",
+                author: "Grace Hopper"
               }
             ]
           }
@@ -759,6 +1433,8 @@ describe("paper tool surface", () => {
         paper_id: "10.5555/rate-limited",
         providers: ["crossref"],
         partial: true,
+        relationship_type: "reference",
+        degraded_reason: "openalex_seed_upstream_failed",
         results: [
           {
             title: "Fallback Reference Title",
@@ -778,6 +1454,43 @@ describe("paper tool surface", () => {
           }
         ]
       }
+    });
+
+    const relatedHappyPathHandler = getToolHandler("paper_get_related");
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(relatedHappyPathHandler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: false,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
     });
 
     const relatedFetchDoiEmptyMock = vi.fn(async (input: string | URL) => {
@@ -866,6 +1579,7 @@ describe("paper tool surface", () => {
         paper_id: "https://openalex.org/W1234567890",
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: []
       }
     });
@@ -926,7 +1640,7 @@ describe("paper normalization merge", () => {
         venue: "Journal of Tests",
         doi: "10.1000/test",
         arxiv_id: null,
-        paper_id: "10.1000/test",
+        paper_id: "W123",
         source_links: ["https://doi.org/10.1000/test", "https://openalex.org/W123"],
         download_links: ["https://example.com/paper.pdf"],
         open_access: true,
@@ -1061,6 +1775,52 @@ describe("paper normalization merge", () => {
         reference_count: 7,
         provider: "openalex"
       }
+    ]);
+  });
+
+  it("keeps a bare OpenAlex work id when merging duplicate papers", () => {
+    const merged = mergePaperResults([
+      {
+        title: "Deep Residual Learning for Image Recognition",
+        authors: [],
+        abstract: null,
+        year: 2016,
+        venue: "1507 06228",
+        doi: "10.1109/CVPR.2016.90",
+        arxiv_id: null,
+        paper_id: "10.1109/CVPR.2016.90",
+        source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+        download_links: [],
+        open_access: null,
+        citation_count: null,
+        reference_count: null,
+        provider: "crossref"
+      },
+      {
+        title: "Deep Residual Learning for Image Recognition",
+        authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+        abstract: "Residual networks.",
+        year: 2016,
+        venue: "CVPR 2016",
+        doi: "10.1109/CVPR.2016.90",
+        arxiv_id: null,
+        paper_id: "W2126138322",
+        source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
+        download_links: [],
+        open_access: null,
+        citation_count: 250000,
+        reference_count: 41,
+        provider: "openalex"
+      }
+    ]);
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+        venue: "CVPR 2016",
+        paper_id: "W2126138322",
+        provider: "openalex"
+      })
     ]);
   });
 });
