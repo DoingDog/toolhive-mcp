@@ -1197,7 +1197,7 @@ describe("paper normalization merge", () => {
     ]);
   });
 
-  it("keeps non-empty authors, stronger venue, and OpenAlex paper_id when merging duplicate papers", () => {
+  it("keeps a bare OpenAlex work id when merging duplicate papers", () => {
     const merged = mergePaperResults([
       {
         title: "Deep Residual Learning for Image Recognition",
@@ -1223,7 +1223,7 @@ describe("paper normalization merge", () => {
         venue: "CVPR 2016",
         doi: "10.1109/CVPR.2016.90",
         arxiv_id: null,
-        paper_id: "https://openalex.org/W2126138322",
+        paper_id: "W2126138322",
         source_links: ["https://doi.org/10.1109/CVPR.2016.90"],
         download_links: [],
         open_access: null,
@@ -1237,7 +1237,7 @@ describe("paper normalization merge", () => {
       expect.objectContaining({
         authors: ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
         venue: "CVPR 2016",
-        paper_id: "https://openalex.org/W2126138322",
+        paper_id: "W2126138322",
         provider: "openalex"
       })
     ]);

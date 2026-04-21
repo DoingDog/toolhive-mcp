@@ -192,13 +192,21 @@ function chooseProvider(current: NormalizedPaper, candidate: NormalizedPaper): N
   return scorePaperQuality(candidate) > scorePaperQuality(current) ? candidate.provider : current.provider;
 }
 
+function isOpenAlexPaperId(paperId: string | null): boolean {
+  if (paperId === null) {
+    return false;
+  }
+
+  return /^(?:https?:\/\/openalex\.org\/)?W\d+$/i.test(paperId);
+}
+
 function mergeTwoPapers(current: NormalizedPaper, candidate: NormalizedPaper): NormalizedPaper {
   const doi = normalizeDoi(current.doi) ?? normalizeDoi(candidate.doi);
   const arxivId = normalizeArxivId(current.arxiv_id) ?? normalizeArxivId(candidate.arxiv_id);
   const currentPaperId = normalizeText(current.paper_id);
   const candidatePaperId = normalizeText(candidate.paper_id);
   const fallbackPaperId = currentPaperId ?? candidatePaperId;
-  const openAlexPaperId = [currentPaperId, candidatePaperId].find((paperId) => paperId?.includes("openalex.org/W")) ?? null;
+  const openAlexPaperId = [currentPaperId, candidatePaperId].find(isOpenAlexPaperId) ?? null;
 
   return {
     title: chooseBetterString(current.title, candidate.title),
