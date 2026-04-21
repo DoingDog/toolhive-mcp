@@ -83,7 +83,7 @@ export function renderFetchedBody(
     return {
       body,
       requested_format: requestedFormat,
-      actual_format: requestedFormat === "html" ? "html" : "text",
+      actual_format: "text",
       extracted: false,
       fallback_reason: null
     };

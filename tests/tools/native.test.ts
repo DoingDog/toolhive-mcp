@@ -536,6 +536,37 @@ describe("native tools", () => {
     });
   });
 
+  it("webfetch reports non-html payloads as actual text even when html is requested", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("{\"ok\":true}", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/data",
+        format: "html"
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        requested_format: "html",
+        actual_format: "text",
+        extracted: false,
+        fallback_reason: null
+      })
+    });
+    if (result.ok) {
+      expect(result.data.body).toBe('{"ok":true}');
+    }
+  });
+
   it("webfetch returns raw HTML unchanged when format is html", async () => {
     vi.stubGlobal(
       "fetch",
