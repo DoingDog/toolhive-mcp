@@ -285,7 +285,7 @@ const paperToolManifestEntries: ToolManifestEntry[] = [
     },
     whenToUse: "Use to fetch OpenAlex related-paper results for a DOI or OpenAlex work identifier.",
     whenNotToUse: "Do not use with arXiv ids or other provider-specific identifiers that OpenAlex cannot resolve.",
-    outputShape: "Object with resolved paper_id, providers, partial, and related paper results.",
+    outputShape: "Object with resolved paper_id, providers, partial, relationship_type, optional degraded_reason, and related paper results.",
     limits: {},
     handler: handlePaperGetRelated
   }),

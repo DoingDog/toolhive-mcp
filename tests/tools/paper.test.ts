@@ -708,6 +708,141 @@ describe("paper tool surface", () => {
     });
   });
 
+  it("returns explicit degraded metadata when related falls back to Crossref references", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/https%3A%2F%2Fdoi.org%2F10.5555%2Frate-limited") {
+        return new Response("rate limited", { status: 429 });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.5555%2Frate-limited") {
+        return Response.json({ results: [] });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Frate-limited") {
+        return Response.json({
+          message: {
+            reference: [
+              {
+                DOI: "10.5555/reference-doi",
+                year: "2021",
+                author: "Ada Lovelace",
+                "journal-title": "Journal of Fallbacks"
+              },
+              {
+                DOI: "10.5555/untitled-reference",
+                year: "2020",
+                author: "Grace Hopper"
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Freference-doi") {
+        return Response.json({
+          message: {
+            DOI: "10.5555/reference-doi",
+            title: ["Fallback Reference Title"],
+            author: [{ given: "Ada", family: "Lovelace" }],
+            "container-title": ["Journal of Fallbacks"],
+            issued: { "date-parts": [[2021]] }
+          }
+        });
+      }
+
+      if (url === "https://api.crossref.org/works/10.5555%2Funtitled-reference") {
+        return Response.json({
+          message: {
+            DOI: "10.5555/untitled-reference",
+            issued: { "date-parts": [[2020]] }
+          }
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "10.5555/rate-limited" }, context)).resolves.toEqual({
+      ok: true,
+      data: {
+        paper_id: "10.5555/rate-limited",
+        providers: ["crossref"],
+        partial: true,
+        relationship_type: "reference",
+        degraded_reason: "openalex_seed_upstream_failed",
+        results: [
+          {
+            title: "Fallback Reference Title",
+            authors: ["Ada Lovelace"],
+            abstract: null,
+            year: 2021,
+            venue: "Journal of Fallbacks",
+            doi: "10.5555/reference-doi",
+            arxiv_id: null,
+            paper_id: "10.5555/reference-doi",
+            source_links: ["https://doi.org/10.5555/reference-doi"],
+            download_links: [],
+            open_access: null,
+            citation_count: null,
+            reference_count: null,
+            provider: "crossref"
+          }
+        ]
+      }
+    });
+  });
+
+  it("returns related results with explicit relationship_type on the OpenAlex happy path", async () => {
+    const handler = getToolHandler("paper_get_related");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(handler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: false,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
+    });
+  });
+
   it("returns controlled validation results for paper surfaces", async () => {
     const searchHandler = getToolHandler("paper_search");
     const detailsHandler = getToolHandler("paper_get_details");
@@ -1068,11 +1203,14 @@ describe("paper tool surface", () => {
             reference: [
               {
                 DOI: "10.5555/reference-doi",
-                "article-title": "Fallback Reference Title",
                 year: "2021",
                 author: "Ada Lovelace",
-                volume: "42",
                 "journal-title": "Journal of Fallbacks"
+              },
+              {
+                DOI: "10.5555/untitled-reference",
+                year: "2020",
+                author: "Grace Hopper"
               }
             ]
           }
@@ -1090,6 +1228,8 @@ describe("paper tool surface", () => {
         paper_id: "10.5555/rate-limited",
         providers: ["crossref"],
         partial: true,
+        relationship_type: "reference",
+        degraded_reason: "openalex_seed_upstream_failed",
         results: [
           {
             title: "Fallback Reference Title",
@@ -1109,6 +1249,43 @@ describe("paper tool surface", () => {
           }
         ]
       }
+    });
+
+    const relatedHappyPathHandler = getToolHandler("paper_get_related");
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.openalex.org/works/W1234567890") {
+        return Response.json({
+          id: "https://openalex.org/W1234567890",
+          title: "Seed Paper",
+          publication_year: 2024,
+          related_works: ["https://openalex.org/W999"]
+        });
+      }
+
+      if (url === "https://api.openalex.org/works/W999") {
+        return Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1000/related",
+          title: "Related Paper",
+          publication_year: 2025
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    await expect(relatedHappyPathHandler?.({ paper_id: "W1234567890" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        paper_id: "https://openalex.org/W1234567890",
+        providers: ["openalex"],
+        partial: false,
+        relationship_type: "related",
+        results: [expect.objectContaining({ title: "Related Paper" })]
+      })
     });
 
     const relatedFetchDoiEmptyMock = vi.fn(async (input: string | URL) => {

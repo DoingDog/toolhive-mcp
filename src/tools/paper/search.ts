@@ -36,6 +36,60 @@ type ProviderPaperSearchResult = {
   papers: NormalizedPaper[];
 };
 
+function scoreRelatedPaperCompleteness(paper: NormalizedPaper): number {
+  return [
+    paper.title,
+    paper.abstract,
+    paper.venue,
+    paper.doi,
+    paper.arxiv_id,
+    paper.year,
+    paper.open_access,
+    paper.citation_count,
+    paper.reference_count
+  ].filter((value) => value !== null).length
+    + paper.authors.filter((author) => author.trim().length > 0).length;
+}
+
+async function hydrateRelatedResults(papers: NormalizedPaper[], limit = 5): Promise<NormalizedPaper[]> {
+  const hydratedPapers = [...papers];
+  let hydrationCount = 0;
+
+  for (let index = 0; index < hydratedPapers.length; index += 1) {
+    const paper = hydratedPapers[index];
+    if (!paper) {
+      continue;
+    }
+
+    const needsHydration = paper.doi !== null
+      && hydrationCount < limit
+      && (paper.title === null || paper.authors.length === 0 || paper.venue === null);
+
+    if (!needsHydration) {
+      continue;
+    }
+
+    try {
+      const detail = await fetchCrossrefDetails(paper.doi);
+      if (detail.paper) {
+        hydratedPapers[index] = mergePaperResults([paper, detail.paper])[0] ?? paper;
+      }
+    } catch {
+      // keep original paper when hydration fails
+    }
+
+    hydrationCount += 1;
+  }
+
+  return hydratedPapers;
+}
+
+function finalizeRelatedResults(papers: NormalizedPaper[]): NormalizedPaper[] {
+  return mergePaperResults(papers)
+    .filter((paper) => paper.title !== null)
+    .sort((left, right) => scoreRelatedPaperCompleteness(right) - scoreRelatedPaperCompleteness(left));
+}
+
 function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -556,14 +610,20 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
     }
   } catch (error) {
     if (classification.kind === "doi") {
+      const lookupError = normalizeOpenAlexLookupError(error, "seed_resolution");
+
       try {
-        const fallbackResults = mergePaperResults(await fetchCrossrefReferences(classification.value));
+        const fallbackResults = finalizeRelatedResults(
+          await hydrateRelatedResults(await fetchCrossrefReferences(classification.value))
+        );
         return {
           ok: true,
           data: {
             paper_id: classification.value,
             providers: ["crossref"],
             partial: true,
+            relationship_type: "reference",
+            degraded_reason: lookupError.code,
             results: fallbackResults
           }
         };
@@ -577,7 +637,9 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
 
   try {
     const relatedResults = lookup.relatedWorkIds.length > 0
-      ? mergePaperResults(await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10)))
+      ? finalizeRelatedResults(
+          await hydrateRelatedResults(await fetchOpenAlexWorksByIds(lookup.relatedWorkIds.slice(0, 10)))
+        )
       : [];
 
     return {
@@ -586,6 +648,7 @@ export async function handlePaperGetRelated(args: unknown, _context: ToolContext
         paper_id: classification.kind === "doi" ? classification.value : lookup.workId,
         providers: ["openalex"],
         partial: false,
+        relationship_type: "related",
         results: relatedResults
       }
     };
