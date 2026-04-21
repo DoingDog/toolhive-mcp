@@ -585,6 +585,182 @@ describe("Tavily HTTP API tools", () => {
     );
   });
 
+  it("keeps repeated Tavily crawl JSON-RPC calls stable for the same valid payload when one key fails upstream", async () => {
+    const payload = {
+      url: "https://example.org",
+      instructions: "提取当前站点可访问页面的标题和主要内容",
+      max_depth: 1,
+      max_breadth: 5,
+      limit: 5,
+      allow_external: false,
+      include_images: false,
+      extract_depth: "basic",
+      format: "markdown",
+      include_favicon: false
+    } as const;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("authorization");
+      if (authorization === "Bearer tvly-bad") {
+        return new Response("internal crawl execution failed", { status: 500 });
+      }
+
+      return Response.json({ base_url: payload.url, results: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const call = (id: number) => handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "tavily_crawl",
+          arguments: payload
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-bad,tvly-good" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+
+    const first = await (await call(1)).json();
+    const second = await (await call(2)).json();
+    const third = await (await call(3)).json();
+
+    expect(first).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"base_url": "https://example.org"')
+          }
+        ]
+      }
+    });
+    expect(second).toEqual({
+      jsonrpc: "2.0",
+      id: 2,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"base_url": "https://example.org"')
+          }
+        ]
+      }
+    });
+    expect(third).toEqual({
+      jsonrpc: "2.0",
+      id: 3,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"base_url": "https://example.org"')
+          }
+        ]
+      }
+    });
+    expect(first).not.toHaveProperty("error");
+    expect(second).not.toHaveProperty("error");
+    expect(third).not.toHaveProperty("error");
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.tavily.com/crawl",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer tvly-bad" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.tavily.com/crawl",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer tvly-good" })
+      })
+    );
+  });
+
+  it("returns a tool error instead of top-level Invalid params when Tavily crawl fails upstream after schema validation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("invalid arguments from upstream", { status: 500 })));
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily_crawl",
+          arguments: {
+            url: "https://example.org",
+            instructions: "提取当前站点可访问页面的标题和主要内容",
+            max_depth: 1,
+            max_breadth: 5,
+            limit: 5,
+            allow_external: false,
+            include_images: false,
+            extract_depth: "basic",
+            format: "markdown",
+            include_favicon: false
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining('"type": "upstream_error"')
+          }
+        ],
+        isError: true
+      }
+    });
+  });
+
+  it("rejects invalid Tavily crawl arguments through JSON-RPC schema validation", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ base_url: "https://example.com", results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily_crawl",
+          arguments: {
+            url: "https://example.org",
+            max_depth: 0
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32602,
+        message: "Invalid params"
+      }
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("posts research requests to Tavily HTTP API", async () => {
     const fetchMock = vi.fn(async () => Response.json({ answer: "done" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -1378,6 +1554,74 @@ describe("Pure.md tool", () => {
       "https://pure.md/example.com/page",
       expect.objectContaining({ headers: expect.any(Object) })
     );
+  });
+
+  it("removes a trailing Pure.md vendor footer from extracted markdown", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# Example\n\nBody text.\n\n---\nOutput not what you expected? Email puremd@crawlspace.dev", { status: 200 }))
+    );
+
+    const result = await handlePuremdExtract(
+      { url: "https://example.com", format: "markdown" },
+      { PUREMD_API_KEYS: "pm-test" }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        url: "https://example.com/",
+        content: "# Example\n\nBody text.",
+        format: "markdown"
+      }
+    });
+  });
+
+  it("removes trailing CTA and debug blocks added after the extracted body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# Example\n\nBody text.\n\n---\nSponsored by Pure.md\nCall to action: upgrade for more extractions\nDebug: request id abc123", { status: 200 }))
+    );
+
+    const result = await handlePuremdExtract(
+      {
+        url: "https://example.com/page",
+        format: "markdown",
+        prompt: "extract main content",
+        schema: "{\"type\":\"object\"}"
+      },
+      { PUREMD_API_KEYS: "pm-test" }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        url: "https://example.com/page",
+        content: "# Example\n\nBody text.",
+        format: "markdown"
+      }
+    });
+  });
+
+  it("preserves body text when vendor-related words appear in normal content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# Example\n\nThis page documents debug logging, sponsored placements, call to action patterns, and Pure.md migrations.", { status: 200 }))
+    );
+
+    const result = await handlePuremdExtract(
+      { url: "https://example.com/docs", format: "markdown" },
+      { PUREMD_API_KEYS: "pm-test" }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        url: "https://example.com/docs",
+        content: "# Example\n\nThis page documents debug logging, sponsored placements, call to action patterns, and Pure.md migrations.",
+        format: "markdown"
+      }
+    });
   });
 
   it("uses POST when prompt or schema is provided and forwards requestheaders", async () => {

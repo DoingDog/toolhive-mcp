@@ -13,6 +13,47 @@ function headerRecord(value: unknown): Record<string, string> | undefined {
   return Object.fromEntries(entries) as Record<string, string>;
 }
 
+function stripTrailingPuremdFooter(text: string): string {
+  const normalized = text.trimEnd();
+  const blocks = normalized.split(/\n{2,}/);
+  let end = blocks.length;
+  let removedFooter = false;
+
+  while (end > 0) {
+    const block = blocks[end - 1]?.trim();
+    if (!block) {
+      end -= 1;
+      continue;
+    }
+
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const isSeparatorOnly = lines.length === 1 && /^[-*_]{3,}$/.test(lines[0]!);
+    const footerLines = lines[0] && /^[-*_]{3,}$/.test(lines[0]) ? lines.slice(1) : lines;
+    const hasVendorSignal = /pure\.?md|crawlspace\.dev|puremd@crawlspace\.dev/i.test(block);
+    const hasPromoOrDebugSignal = footerLines.length > 0 && footerLines.every((line) =>
+      /^(output not what you expected\?|sponsored by\b|call to action:|upgrade for more\b|debug:|request id\b)/i.test(line)
+    );
+
+    if (hasVendorSignal && hasPromoOrDebugSignal) {
+      removedFooter = true;
+      end -= 1;
+      continue;
+    }
+
+    if (removedFooter && isSeparatorOnly) {
+      end -= 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return blocks.slice(0, end).join("\n\n").trimEnd();
+}
+
 export async function handlePuremdExtract(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {
   if (!args || typeof args !== "object" || typeof (args as { url?: unknown }).url !== "string") {
     return validationError("url must be a string");
@@ -79,7 +120,7 @@ export async function handlePuremdExtract(args: unknown, env: AppEnv): Promise<T
     return result;
   }
 
-  const content = result.text;
+  const content = stripTrailingPuremdFooter(result.text);
 
   return {
     ok: true,

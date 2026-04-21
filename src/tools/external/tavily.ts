@@ -7,7 +7,11 @@ import type { ToolExecutionResult } from "../../mcp/result";
 async function postTavily(
   endpoint: "search" | "extract" | "crawl" | "research",
   body: unknown,
-  env: AppEnv
+  env: AppEnv,
+  options?: {
+    initialKeyStrategy?: "random" | "first";
+    retryOnStatuses?: number[];
+  }
 ): Promise<ToolExecutionResult> {
   const keys = parseKeyList(env.TAVILY_API_KEYS);
   if (keys.length === 0) {
@@ -27,7 +31,9 @@ async function postTavily(
         },
         body: JSON.stringify(body)
       }
-    })
+    }),
+    ...(options?.initialKeyStrategy !== undefined ? { initialKeyStrategy: options.initialKeyStrategy } : {}),
+    ...(options?.retryOnStatuses !== undefined ? { retryOnStatuses: options.retryOnStatuses } : {})
   });
 
   if ("error" in result) {
@@ -67,7 +73,10 @@ export async function handleTavilyCrawl(args: unknown, env: AppEnv): Promise<Too
   if (!args || typeof args !== "object" || typeof (args as { url?: unknown }).url !== "string") {
     return validationError("url must be a string");
   }
-  return postTavily("crawl", args, env);
+  return postTavily("crawl", args, env, {
+    initialKeyStrategy: "first",
+    retryOnStatuses: [500]
+  });
 }
 
 export async function handleTavilyResearch(args: unknown, env: AppEnv): Promise<ToolExecutionResult> {

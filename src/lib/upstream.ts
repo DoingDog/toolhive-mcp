@@ -17,6 +17,8 @@ type UpstreamFetchOptions = GuardedFetchOptions & {
   keys: string[];
   makeRequest: (key: string) => UpstreamRequest;
   maxRetries?: number;
+  initialKeyStrategy?: "random" | "first";
+  retryOnStatuses?: number[];
 };
 
 export type GuardedFetchSuccess = {
@@ -255,8 +257,17 @@ export async function fetchGuardedText(
 }
 
 export async function fetchWithKeyRetry(options: UpstreamFetchOptions): Promise<UpstreamFetchSuccess | ToolFailure> {
-  const { keys, serviceName, makeRequest, maxRetries = 1, timeoutMs, maxBytes } = options;
-  let key = pickRandomKey(keys);
+  const {
+    keys,
+    serviceName,
+    makeRequest,
+    maxRetries = 1,
+    timeoutMs,
+    maxBytes,
+    initialKeyStrategy = "random",
+    retryOnStatuses = []
+  } = options;
+  let key = initialKeyStrategy === "first" ? keys[0] : pickRandomKey(keys);
   let attempts = 0;
 
   while (key && attempts <= maxRetries) {
@@ -277,12 +288,13 @@ export async function fetchWithKeyRetry(options: UpstreamFetchOptions): Promise<
     }
 
     const authFailure = isAuthFailure(guardedResult.response.status, guardedResult.text);
+    const retriableStatusFailure = retryOnStatuses.includes(guardedResult.response.status);
 
     if (guardedResult.response.ok && !authFailure) {
       return { ...guardedResult, key };
     }
 
-    if (attempts < maxRetries && authFailure) {
+    if (attempts < maxRetries && (authFailure || retriableStatusFailure)) {
       const rotatedKey = nextKey(keys, key);
       if (rotatedKey) {
         key = rotatedKey;
