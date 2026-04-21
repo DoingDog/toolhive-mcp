@@ -203,7 +203,7 @@ const nativeToolManifestEntries: ToolManifestEntry[] = [
     },
     whenToUse: "Use for direct HTTP fetching.",
     whenNotToUse: "Do not use when the request is not about fetching web content.",
-    outputShape: "Fetched web content.",
+    outputShape: "Fetched content with body, requested_format, actual_format, extracted, fallback_reason, and compact metadata.",
     limits: { timeoutMs: 30000, maxBytes: 1048576 },
     handler: handleWebfetch
   }),

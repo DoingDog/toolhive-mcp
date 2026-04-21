@@ -5,7 +5,7 @@ import { handleCalc } from "../../src/tools/native/calc";
 import { handleWhoami } from "../../src/tools/native/ip";
 import { handleTime } from "../../src/tools/native/time";
 import { handleWeather } from "../../src/tools/native/weather";
-import { handleWebfetch } from "../../src/tools/native/webfetch";
+import { handleWebfetch, renderFetchedBody } from "../../src/tools/native/webfetch";
 
 const context = {
   env: {},
@@ -374,7 +374,7 @@ describe("native tools", () => {
     }
   });
 
-  it("webfetch converts HTML to markdown when requested", async () => {
+  it("webfetch reports requested and actual format when HTML converts to markdown", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -386,32 +386,39 @@ describe("native tools", () => {
     );
 
     const result = await handleWebfetch(
-      {
-        url: "https://example.com/article",
-        format: "markdown"
-      },
+      { url: "https://example.com/article", format: "markdown" },
       context
     );
 
     expect(result).toEqual({
       ok: true,
-      data: {
-        status: 200,
-        url: "https://example.com/article",
+      data: expect.objectContaining({
         body: expect.stringContaining("# Hello"),
-          provider_used: "webfetch",
-          content_length: 45,
-          truncated: false,
-          cached: false,
-          partial: false,
-      }
+        requested_format: "markdown",
+        actual_format: "markdown",
+        extracted: true,
+        fallback_reason: null
+      })
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({
-        body: expect.stringContaining("World")
-      });
-    }
+  });
+
+  it("renderFetchedBody falls back to text when markdown conversion throws", () => {
+    expect(
+      renderFetchedBody(
+        "<article><h1>Hello</h1><p>World</p></article>",
+        "text/html; charset=utf-8",
+        "markdown",
+        () => {
+          throw new Error("conversion failed");
+        }
+      )
+    ).toEqual({
+      body: "Hello\n\nWorld",
+      requested_format: "markdown",
+      actual_format: "text",
+      extracted: false,
+      fallback_reason: "markdown_conversion_failed"
+    });
   });
 
   it("webfetch treats XHTML responses as HTML for markdown conversion", async () => {

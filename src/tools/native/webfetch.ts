@@ -8,6 +8,16 @@ import type { ToolExecutionResult } from "../../mcp/result";
 
 type WebfetchFormat = "markdown" | "text" | "html";
 
+type WebfetchFallbackReason = "markdown_conversion_failed";
+
+export type RenderedWebfetchBody = {
+  body: string;
+  requested_format: WebfetchFormat;
+  actual_format: "markdown" | "text" | "html";
+  extracted: boolean;
+  fallback_reason: WebfetchFallbackReason | null;
+};
+
 type WebfetchArgs = {
   url?: unknown;
   method?: unknown;
@@ -61,20 +71,61 @@ function extractHtmlText(html: string): string {
     .trim();
 }
 
-function formatResponseBody(body: string, contentType: string | null, format?: WebfetchFormat): string {
+export function renderFetchedBody(
+  body: string,
+  contentType: string | null,
+  format?: WebfetchFormat,
+  convertMarkdown: (html: string) => string = htmlToMd
+): RenderedWebfetchBody {
+  const requestedFormat = format ?? "markdown";
+
   if (!isHtmlResponse(contentType)) {
-    return body;
+    return {
+      body,
+      requested_format: requestedFormat,
+      actual_format: requestedFormat === "html" ? "html" : "text",
+      extracted: false,
+      fallback_reason: null
+    };
   }
 
-  if (format === "html") {
-    return body;
+  if (requestedFormat === "html") {
+    return {
+      body,
+      requested_format: requestedFormat,
+      actual_format: "html",
+      extracted: false,
+      fallback_reason: null
+    };
   }
 
-  if (format === undefined || format === "markdown") {
-    return htmlToMd(body);
+  if (requestedFormat === "text") {
+    return {
+      body: extractHtmlText(body),
+      requested_format: requestedFormat,
+      actual_format: "text",
+      extracted: true,
+      fallback_reason: null
+    };
   }
 
-  return extractHtmlText(body);
+  try {
+    return {
+      body: convertMarkdown(body),
+      requested_format: requestedFormat,
+      actual_format: "markdown",
+      extracted: true,
+      fallback_reason: null
+    };
+  } catch {
+    return {
+      body: extractHtmlText(body),
+      requested_format: requestedFormat,
+      actual_format: "text",
+      extracted: false,
+      fallback_reason: "markdown_conversion_failed"
+    };
+  }
 }
 
 export async function handleWebfetch(args: unknown, _context: ToolContext): Promise<ToolExecutionResult> {
@@ -151,12 +202,22 @@ export async function handleWebfetch(args: unknown, _context: ToolContext): Prom
     };
   }
 
+  const renderedBody = renderFetchedBody(
+    result.text,
+    result.response.headers.get("content-type"),
+    format
+  );
+
   return {
     ok: true,
     data: {
       status: result.response.status,
       url: result.response.url || url.toString(),
-      body: formatResponseBody(result.text, result.response.headers.get("content-type"), format),
+      body: renderedBody.body,
+      requested_format: renderedBody.requested_format,
+      actual_format: renderedBody.actual_format,
+      extracted: renderedBody.extracted,
+      fallback_reason: renderedBody.fallback_reason,
       ...createResponseMetadata({
         providerUsed: "webfetch",
         ...(result.contentLength !== undefined ? { contentLength: result.contentLength } : {}),
