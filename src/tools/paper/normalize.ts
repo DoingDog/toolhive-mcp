@@ -1,5 +1,7 @@
 import type { NormalizedPaper } from "./types";
 
+const AUXILIARY_TITLE_PATTERN = /\b(supplement|supplementary|component|attachment|media|appendix)\b/i;
+
 function normalizeText(value: string | null): string | null {
   if (typeof value !== "string") {
     return null;
@@ -30,6 +32,27 @@ function normalizeArxivId(arxivId: string | null): string | null {
 function normalizeKeyPart(value: string | null): string | null {
   const normalizedValue = normalizeText(value)?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return normalizedValue && normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+export function normalizeSearchTitleKey(value: string | null): string | null {
+  return normalizeKeyPart(value)?.replace(/\b(the|a|an)\b/g, " ").replace(/\s+/g, " ").trim() || null;
+}
+
+export function isAuxiliaryPaperRecord(paper: NormalizedPaper): boolean {
+  const normalizedDoi = normalizeDoi(paper.doi);
+  return AUXILIARY_TITLE_PATTERN.test(paper.title) || (normalizedDoi !== null && /\/mm\d+$/i.test(normalizedDoi));
+}
+
+export function scorePaperForQuery(paper: NormalizedPaper, query: string): number {
+  const normalizedQuery = normalizeSearchTitleKey(query);
+  const normalizedTitle = normalizeSearchTitleKey(paper.title);
+  const exactTitleScore = normalizedQuery !== null && normalizedTitle === normalizedQuery ? 1_000_000 : 0;
+  const titlePrefixScore = exactTitleScore === 0 && normalizedQuery !== null && normalizedTitle?.startsWith(normalizedQuery) ? 100_000 : 0;
+  const completenessScore = scorePaperCompleteness(paper) * 1_000;
+  const citationScore = Math.min(paper.citation_count ?? 0, 500_000);
+  const yearScore = paper.year === null ? 0 : Math.max(0, 2100 - paper.year);
+
+  return exactTitleScore + titlePrefixScore + completenessScore + citationScore - yearScore;
 }
 
 function buildFallbackKey(paper: NormalizedPaper): string | null {

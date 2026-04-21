@@ -347,6 +347,146 @@ describe("paper tool surface", () => {
     expect(getToolHandler("paper_get_open_access")).toBeTypeOf("function");
   });
 
+  it("routes DOI and arXiv DOI queries through exact lookup instead of generic full-text search", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works/10.48550%2FarXiv.1706.03762") {
+        return Response.json({
+          message: {
+            DOI: "10.48550/arXiv.1706.03762",
+            title: ["Attention Is All You Need"],
+            issued: { "date-parts": [[2017]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.48550%2FarXiv.1706.03762") {
+        return Response.json({ results: [] });
+      }
+
+      if (url === "https://export.arxiv.org/api/query?search_query=id:1706.03762&start=0&max_results=1") {
+        return new Response(`
+        <feed>
+          <entry>
+            <id>http://arxiv.org/abs/1706.03762v7</id>
+            <title>Attention Is All You Need</title>
+            <summary>Transformer abstract</summary>
+            <author><name>Ashish Vaswani</name></author>
+          </entry>
+        </feed>
+      `, { status: 200 });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.48550/arXiv.1706.03762" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.48550/arXiv.1706.03762",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Attention Is All You Need"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.48550%2FarXiv.1706.03762&rows=10",
+      expect.anything()
+    );
+  });
+
+  it("ranks exact-title canonical papers ahead of derivative and supplementary records", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=Attention%20Is%20All%20You%20Need&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1109/TIM.2024.3374300/mm1",
+                title: ["Spectrum-BERT: supplementary material"],
+                issued: { "date-parts": [[2024]] }
+              },
+              {
+                DOI: "10.5555/attention-2025",
+                title: ["Is Attention All You Need?"],
+                issued: { "date-parts": [[2025]] }
+              },
+              {
+                DOI: "10.5555/attention-2017",
+                title: ["Attention Is All You Need"],
+                issued: { "date-parts": [[2017]] },
+                author: [{ given: "Ashish", family: "Vaswani" }],
+                "is-referenced-by-count": 100
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=Attention%20Is%20All%20You%20Need&per-page=10") {
+        return Response.json({
+          results: [
+            {
+              id: "https://openalex.org/W2741809807",
+              doi: "https://doi.org/10.5555/attention-2017",
+              title: "Attention Is All You Need",
+              publication_year: 2017,
+              authorships: [{ author: { display_name: "Ashish Vaswani" } }],
+              primary_location: { source: { display_name: "NeurIPS" } },
+              cited_by_count: 100000,
+              referenced_works_count: 35
+            }
+          ]
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    const result = await handler?.({ query: "Attention Is All You Need" }, context);
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        providers: ["crossref", "openalex"],
+        partial: false,
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Attention Is All You Need",
+            doi: "10.5555/attention-2017"
+          })
+        ])
+      })
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      expect(result.data.results[0]).toMatchObject({
+        title: "Attention Is All You Need"
+      });
+      expect(result.data.results.some((paper) => paper.doi === "10.1109/TIM.2024.3374300/mm1")).toBe(false);
+    }
+  });
+
   it("aggregates paper details across providers and marks partial results when one provider fails", async () => {
     const detailsHandler = getToolHandler("paper_get_details");
     const legacyDetailsHandler = getToolHandler("paper-get-details");

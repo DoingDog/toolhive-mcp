@@ -1,6 +1,6 @@
 import { internalError, validationError } from "../../lib/errors";
 import type { ToolExecutionResult } from "../../mcp/result";
-import { mergePaperResults } from "./normalize";
+import { isAuxiliaryPaperRecord, mergePaperResults, scorePaperForQuery } from "./normalize";
 import { normalizeArxivEntry } from "./providers/arxiv";
 import { normalizeCrossrefReference, normalizeCrossrefWork } from "./providers/crossref";
 import { normalizeOpenAlexWork } from "./providers/openalex";
@@ -47,6 +47,50 @@ function normalizeNonEmptyString(value: unknown): string | null {
 
 function looksLikeDoi(value: string): boolean {
   return /^10\.\S+\/\S+$/i.test(value.trim());
+}
+
+function looksLikeArxivId(value: string): boolean {
+  const normalizedValue = value.trim();
+  return /^(?:arxiv:)?(?:\d{4}\.\d{4,5}|[a-z.-]+\/\d{7})(?:v\d+)?$/i.test(normalizedValue);
+}
+
+type PaperQueryClassification =
+  | { kind: "doi"; doi: string }
+  | { kind: "arxiv_id"; arxivId: string }
+  | { kind: "text"; query: string };
+
+function normalizeArxivIdentifier(value: string): string {
+  return value.trim().replace(/^arxiv:/i, "").replace(/v\d+$/i, "");
+}
+
+function classifyPaperQuery(query: string): PaperQueryClassification {
+  const normalizedQuery = query.trim();
+
+  if (/^10\.48550\/arxiv\./i.test(normalizedQuery)) {
+    return {
+      kind: "arxiv_id",
+      arxivId: normalizeArxivIdentifier(normalizedQuery.replace(/^10\.48550\/arxiv\./i, ""))
+    };
+  }
+
+  if (looksLikeArxivId(normalizedQuery)) {
+    return {
+      kind: "arxiv_id",
+      arxivId: normalizeArxivIdentifier(normalizedQuery)
+    };
+  }
+
+  if (looksLikeDoi(normalizedQuery)) {
+    return {
+      kind: "doi",
+      doi: normalizedQuery
+    };
+  }
+
+  return {
+    kind: "text",
+    query: normalizedQuery
+  };
 }
 
 type RelatedPaperIdClassification =
@@ -334,9 +378,60 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
     return validationError("query must be a non-empty string");
   }
 
+  const classification = classifyPaperQuery(query);
+
+  if (classification.kind === "arxiv_id") {
+    const providerResult = await fetchArxivDetails(classification.arxivId);
+
+    return {
+      ok: true,
+      data: {
+        query,
+        providers: providerResult.paper ? [providerResult.provider] : [],
+        partial: false,
+        results: providerResult.paper ? [providerResult.paper] : []
+      }
+    };
+  }
+
+  if (classification.kind === "doi") {
+    const providerResults = await Promise.allSettled([
+      fetchCrossrefDetails(classification.doi),
+      fetchOpenAlexDetails(classification.doi)
+    ]);
+
+    const providers: ProviderPaperSearchResult["provider"][] = [];
+    const papers: NormalizedPaper[] = [];
+    let partial = false;
+
+    providerResults.forEach((result) => {
+      if (result.status === "rejected") {
+        partial = true;
+        return;
+      }
+
+      if (!result.value.paper) {
+        return;
+      }
+
+      providers.push(result.value.provider);
+      papers.push(result.value.paper);
+    });
+
+    return {
+      ok: true,
+      data: {
+        query,
+        providers,
+        partial,
+        results: mergePaperResults(papers)
+      }
+    };
+  }
+
   const providerResults = await Promise.allSettled([
-    searchCrossrefWorks(query),
-    searchOpenAlexWorks(query)
+    searchCrossrefWorks(classification.query),
+    searchOpenAlexWorks(classification.query)
   ]);
 
   const providers: ProviderPaperSearchResult["provider"][] = [];
@@ -353,13 +448,17 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
     papers.push(...result.value.papers);
   });
 
+  const results = mergePaperResults(papers)
+    .filter((paper) => !isAuxiliaryPaperRecord(paper))
+    .sort((left, right) => scorePaperForQuery(right, classification.query) - scorePaperForQuery(left, classification.query));
+
   return {
     ok: true,
     data: {
       query,
       providers,
       partial,
-      results: mergePaperResults(papers)
+      results
     }
   };
 }
