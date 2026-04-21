@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import packageJson from "../../package.json";
 import worker from "../../src/worker";
 import { jsonRpcRequest } from "../helpers/request";
 
@@ -22,7 +23,7 @@ describe("MCP protocol", () => {
     expect(response.status).toBe(405);
   });
 
-  it("returns initialize JSON-RPC result", async () => {
+  it("returns initialize JSON-RPC result with package-backed serverInfo", async () => {
     const response = await call("/mcp", jsonRpcRequest("initialize", {}));
     const body = (await response.json()) as {
       jsonrpc: string;
@@ -30,7 +31,7 @@ describe("MCP protocol", () => {
       result: {
         protocolVersion: string;
         capabilities: { tools: Record<string, never> };
-        serverInfo: { name: string };
+        serverInfo: { name: string; version: string };
       };
     };
 
@@ -39,7 +40,10 @@ describe("MCP protocol", () => {
     expect(body.id).toBe(1);
     expect(body.result).toMatchObject({
       protocolVersion: "2025-06-18",
-      serverInfo: { name: "cloudflare-multi-mcp" }
+      serverInfo: {
+        name: packageJson.name,
+        version: packageJson.version
+      }
     });
     expect(body.result.capabilities.tools).toEqual({});
   });
@@ -145,6 +149,15 @@ describe("MCP protocol", () => {
         ]
       }
     });
+  });
+
+  it("lists iplookup without provider env in tools/list", async () => {
+    const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    const names = body.result.tools.map((tool) => tool.name);
+
+    expect(response.status).toBe(200);
+    expect(names).toContain("iplookup");
   });
 
   it("routes IP lookup tool calls through JSON-RPC", async () => {
@@ -422,7 +435,7 @@ describe("MCP protocol", () => {
         content: [
           {
             type: "text",
-            text: expect.stringContaining('"body": "<article><h1>Hello</h1><p>World</p></article>"')
+            text: expect.stringContaining('"body": "# Hello\\n\\nWorld"')
           }
         ]
       }
@@ -439,5 +452,17 @@ describe("MCP protocol", () => {
     expect(names).not.toContain("domain_explore_name");
     expect(names).not.toContain("domain_search_domains");
     expect(names).not.toContain("domain_list_categories");
+  });
+
+  it("does not expose any news tools from tools/list", async () => {
+    const response = await call("/mcp", jsonRpcRequest("tools/list", {}));
+    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    const names = body.result.tools.map((tool) => tool.name);
+
+    expect(response.status).toBe(200);
+    expect(names).not.toContain("news_get_news");
+    expect(names).not.toContain("news_get_news_detail");
+    expect(names).not.toContain("news_get_topics");
+    expect(names).not.toContain("news_get_regions");
   });
 });

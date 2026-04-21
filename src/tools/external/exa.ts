@@ -1,6 +1,7 @@
 import type { AppEnv } from "../../lib/env";
 import { configError, upstreamError, validationError } from "../../lib/errors";
 import { parseKeyList } from "../../lib/keys";
+import { createResponseMetadata } from "../../lib/response-metadata";
 import { fetchWithKeyRetry } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
@@ -148,7 +149,11 @@ export async function handleExaSearch(args: unknown, env: AppEnv): Promise<ToolE
     data: {
       request_id: typeof json.requestId === "string" ? json.requestId : undefined,
       results: json.results.map((entry) => mapResult((entry ?? {}) as ExaSearchResult)),
-      raw: json
+      ...createResponseMetadata({
+        providerUsed: "exa",
+        cached: false,
+        partial: false
+      })
     }
   };
 }

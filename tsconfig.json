@@ -9,6 +9,7 @@
     "types": ["@cloudflare/workers-types", "vitest"],
     "lib": ["ES2022", "WebWorker"],
     "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]

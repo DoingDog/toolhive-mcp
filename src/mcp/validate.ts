@@ -1,13 +1,4 @@
-import type { JsonSchema } from "./schema";
-
-type PropertySchema = {
-  type?: "string" | "boolean" | "integer" | "number" | "object" | "array";
-  enum?: unknown[];
-  minimum?: number;
-  maximum?: number;
-  items?: PropertySchema;
-  additionalProperties?: boolean | PropertySchema;
-};
+import type { JsonSchema, JsonSchemaProperty } from "./schema";
 
 export function validateToolArguments(schema: JsonSchema, args: unknown): string | undefined {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
@@ -15,7 +6,19 @@ export function validateToolArguments(schema: JsonSchema, args: unknown): string
   }
 
   const input = args as Record<string, unknown>;
+
+  if (schema.anyOf) {
+    const matchesAny = schema.anyOf.some((option) => validateToolArguments(option, input) === undefined);
+    if (!matchesAny) {
+      return "Invalid params";
+    }
+  }
+
   const properties = schema.properties ?? {};
+
+  if (schema.minProperties !== undefined && Object.keys(input).length < schema.minProperties) {
+    return "Invalid params";
+  }
 
   for (const required of schema.required ?? []) {
     if (!(required in input)) return "Invalid params";
@@ -28,7 +31,7 @@ export function validateToolArguments(schema: JsonSchema, args: unknown): string
   }
 
   for (const [key, value] of Object.entries(input)) {
-    const property = properties[key] as PropertySchema | undefined;
+    const property = properties[key] as JsonSchemaProperty | undefined;
     if (!property) {
       if (typeof schema.additionalProperties === "object") {
         const error = validateValue(schema.additionalProperties, value);
@@ -44,7 +47,12 @@ export function validateToolArguments(schema: JsonSchema, args: unknown): string
   return undefined;
 }
 
-function validateValue(schema: PropertySchema, value: unknown): string | undefined {
+function validateValue(schema: JsonSchemaProperty, value: unknown): string | undefined {
+  if (schema.anyOf) {
+    const matchesAny = schema.anyOf.some((option) => validateValue(option, value) === undefined);
+    if (!matchesAny) return "Invalid params";
+  }
+
   if (schema.enum && !schema.enum.includes(value)) return "Invalid params";
 
   if (schema.type) {
@@ -74,6 +82,11 @@ function validateValue(schema: PropertySchema, value: unknown): string | undefin
   if (typeof value === "number") {
     if (schema.minimum !== undefined && value < schema.minimum) return "Invalid params";
     if (schema.maximum !== undefined && value > schema.maximum) return "Invalid params";
+  }
+
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && value.length < schema.minLength) return "Invalid params";
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) return "Invalid params";
   }
 
   return undefined;

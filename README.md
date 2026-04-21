@@ -15,30 +15,38 @@ Running MCP tools behind a single hosted endpoint is useful when you want:
 
 ## Features
 
+Current release: `toolhive-mcp@0.3.0`
+
 Current release capabilities:
 
-- Native tools: `weather`, `webfetch`, `calc`, `time`, `whoami`, `iplookup`
-- Context7 tools: `context7_resolve-library-id`, `context7_query-docs`
-- Tavily tools: `tavily_search`, `tavily_extract`, `tavily_crawl`
-- Exa tool: `exa_search`
-- Unsplash tool: `unsplash_search_photos`
-- Pure.md tool: `puremd_extract`
+- Native tools: `weather`, `time`, `whoami`, `webfetch`, `calc`
+- Paper tools: `paper_search`, `paper_get_details`, `paper_get_related`
+- Env-gated paper tool: `paper_get_open_access`
+- External tools: `iplookup`, `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
 - Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
-- Env-gated tool exposure: integrations only appear when the corresponding secrets are configured
-- `iplookup` uses the free `ip-api.com/json` endpoint, so it inherits that service's transport and rate-limit constraints
-- Single HTTP MCP endpoint exposed at `/mcp`
+- Env-gated tool exposure: tools that require provider credentials only appear when the corresponding secrets are configured
+- HTTP endpoints exposed at `/mcp`, `/healthz`, `/readyz`, and `/version`
 
-## Endpoint
+## Endpoints
 
-The server exposes one MCP endpoint:
+The server exposes these HTTP endpoints:
 
-- `https://mcp.awsl.app/mcp`
+- MCP: `https://mcp.awsl.app/mcp`
+- Health check: `https://mcp.awsl.app/healthz`
+- Readiness check: `https://mcp.awsl.app/readyz`
+- Version metadata: `https://mcp.awsl.app/version`
 
 When self-hosting, configure your MCP client to use:
 
 - `https://<your-worker-domain>/mcp`
 
-Only `/mcp` is supported for MCP requests in this project.
+Additional worker endpoints are also available when self-hosting:
+
+- `https://<your-worker-domain>/healthz`
+- `https://<your-worker-domain>/readyz`
+- `https://<your-worker-domain>/version`
+
+Only `/mcp` accepts MCP requests in this project; `/healthz`, `/readyz`, and `/version` are standard HTTP endpoints.
 
 ## Deploy
 
@@ -81,12 +89,19 @@ Useful notes:
 - `npm run dev` starts the Worker locally through Wrangler
 - `npm test` runs the Vitest suite
 - `npm run typecheck` runs TypeScript without emitting build output
+- `GET /version` reports the runtime package metadata, including the current release version from `package.json`
 
 ## Disabled domain tools
 
 Domain-related tools are intentionally disabled in this release.
 
 The codebase still contains domain integration code for possible future re-enable, but the released MCP surface does not expose any `domain_*` tools. README examples and feature descriptions should not be read as implying that domain tools are currently available.
+
+## Disabled news tools
+
+News tools are intentionally disabled in this release.
+
+The codebase still contains news integration code for possible future re-enable, but the released MCP surface does not expose any `news_*` tools. README examples and feature descriptions should not be read as implying that news tools are currently available.
 
 ## License
 

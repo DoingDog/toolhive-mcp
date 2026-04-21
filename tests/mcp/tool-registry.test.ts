@@ -1,302 +1,294 @@
-import { describe, expect, it } from "vitest";
-import { handleJsonRpc } from "../../src/mcp/router";
+// @ts-expect-error Vitest loads raw markdown via Vite in tests.
+import readme from "../../README.md?raw";
+import { describe, expect, it, vi } from "vitest";
 import { findEnabledTool, getEnabledTools } from "../../src/mcp/tool-registry";
-import { parseKeyList, pickRandomKey } from "../../src/lib/keys";
+import { buildAliasMap, buildHandlerMap, buildToolDefinitions } from "../../src/mcp/tool-catalog";
+import { getToolDefinitions, type ToolManifestEntry } from "../../src/mcp/tool-manifest";
+import type { ToolExecutionResult } from "../../src/mcp/result";
+import type { JsonSchema } from "../../src/mcp/schema";
+import { validateToolArguments } from "../../src/mcp/validate";
+import type { ToolContext } from "../../src/tools/types";
 
-const originalRequest = new Request("https://example.com/mcp", { method: "POST" });
+async function stubHandler(_args: unknown, _context: ToolContext): Promise<ToolExecutionResult> {
+  return { ok: true, data: { ok: true } };
+}
 
-describe("tool registry", () => {
-  it('parseKeyList(" a, b ,, c ") returns trimmed non-empty keys', () => {
-    expect(parseKeyList(" a, b ,, c ")).toEqual(["a", "b", "c"]);
-  });
+const manifest: ToolManifestEntry[] = [
+  {
+    name: "weather",
+    aliases: ["forecast.current"],
+    description: "Get current weather for a location.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    category: "native",
+    whenToUse: "Use for current weather requests.",
+    whenNotToUse: "Do not use for forecasts.",
+    outputShape: "Current weather payload.",
+    limits: { timeoutMs: 5000, maxBytes: 4096 },
+    handler: stubHandler
+  },
+  {
+    name: "tavily_search",
+    aliases: ["tavily.search"],
+    description: "Search the web with Tavily.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
+      },
+      required: ["query"],
+      additionalProperties: false
+    },
+    category: "external",
+    envRequirement: "TAVILY_API_KEYS",
+    whenToUse: "Use for Tavily-backed search.",
+    whenNotToUse: "Do not use without Tavily API keys.",
+    outputShape: "Tavily search results.",
+    limits: { timeoutMs: 10_000 },
+    handler: stubHandler
+  },
+  {
+    name: "context7_resolve_library_id",
+    aliases: ["context7.resolve-library-id"],
+    description: "Resolve a Context7 library identifier.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    category: "external",
+    envRequirement: "CONTEXT7_API_KEYS",
+    whenToUse: "Use for resolving Context7 libraries.",
+    whenNotToUse: "Do not use without Context7 API keys.",
+    outputShape: "Context7 library identifier.",
+    limits: { timeoutMs: 10_000 },
+    handler: stubHandler
+  }
+];
 
-  it('pickRandomKey(["only"]) returns the single key', () => {
-    expect(pickRandomKey(["only"])).toBe("only");
-  });
-
-  it("includes native, devutils, and news tools by default while hiding all domain tools", () => {
-    const names = getEnabledTools({}).map((tool) => tool.name);
+describe("tool manifest task 1 infrastructure", () => {
+  it("exposes only manifest-derived canonical names in tools/list", () => {
+    const names = getEnabledTools({ TAVILY_API_KEYS: "tvly-a", CONTEXT7_API_KEYS: "ctx-a" }).map((tool) => tool.name);
 
     expect(names).toContain("weather");
-    expect(names).toContain("webfetch");
-    expect(names).toContain("whoami");
-    expect(names).toContain("iplookup");
-    expect(names).not.toContain("ip");
-    expect(names).toContain("devutils_base64_encode");
-    expect(names).toContain("news_get_news");
-    expect(names).toContain("news_get_news_detail");
-    expect(names).toContain("news_get_topics");
-    expect(names).toContain("news_get_regions");
-    expect(names).not.toContain("domain_check_domain");
-    expect(names).not.toContain("domain_explore_name");
-    expect(names).not.toContain("domain_search_domains");
-    expect(names).not.toContain("domain.list_categories");
-    expect(names.some((name) => name.includes("."))).toBe(false);
-  });
-
-  it("keeps native and devutils schemas aligned with the handlers", () => {
-    const tools = getEnabledTools({});
-    const weather = tools.find((tool) => tool.name === "weather");
-    const webfetch = tools.find((tool) => tool.name === "webfetch");
-    const time = tools.find((tool) => tool.name === "time");
-    const calc = tools.find((tool) => tool.name === "calc");
-    const base64Encode = tools.find((tool) => tool.name === "devutils_base64_encode");
-    const hash = tools.find((tool) => tool.name === "devutils_hash");
-    const uuid = tools.find((tool) => tool.name === "devutils_uuid");
-    const regex = tools.find((tool) => tool.name === "devutils_regex_test");
-    const timestamp = tools.find((tool) => tool.name === "devutils_timestamp_convert");
-
-    expect(weather?.description).toContain("city");
-    expect(weather?.description).toContain("airport code");
-    expect(weather?.description).toContain("coordinates");
-    expect(weather?.description).toContain("structured location string");
-    expect(weather?.description).toContain("ambiguous natural language");
-    expect(weather?.inputSchema.properties).toMatchObject({
-      query: { type: "string" },
-      location: { type: "string" },
-      format: { enum: ["json", "text"], default: "json" },
-      lang: { type: "string" },
-      units: { enum: ["metric", "us", "uk"] }
-    });
-    expect(weather?.inputSchema.properties?.query).toMatchObject({
-      description: expect.stringContaining("city")
-    });
-    expect(weather?.inputSchema.required).toBeUndefined();
-
-    expect(webfetch?.inputSchema.properties).toMatchObject({
-      method: { enum: ["GET", "POST"], default: "GET" },
-      format: { enum: ["markdown", "text", "html"] },
-      return_responseheaders: { type: "boolean", default: false }
-    });
-    expect(webfetch?.inputSchema.properties?.requestheaders).toMatchObject({
-      type: "object",
-      additionalProperties: { type: "string" }
-    });
-
-    expect(time?.inputSchema.properties).toMatchObject({
-      timezone: { default: "UTC" }
-    });
-
-    expect(calc?.description).toContain("single math expression string");
-    expect(calc?.description).toContain("2*(3+4)");
-    expect(calc?.description).toContain("not a natural language question");
-    expect(calc?.inputSchema.properties).toMatchObject({
-      expression: { type: "string" },
-      expr: { type: "string" },
-      input: { type: "string" }
-    });
-    expect(calc?.inputSchema.properties?.expression).toMatchObject({
-      description: expect.stringMatching(/single math expression string/i)
-    });
-    expect(calc?.inputSchema.required).toBeUndefined();
-
-    expect(base64Encode?.inputSchema).toEqual({
-      type: "object",
-      properties: {
-        text: { type: "string", description: "Text to encode as base64" }
-      },
-      additionalProperties: false
-    });
-
-    expect(hash?.inputSchema).toEqual({
-      type: "object",
-      properties: {
-        text: { type: "string", description: "Text to hash" },
-        algorithm: {
-          type: "string",
-          enum: ["SHA-1", "SHA-256", "SHA-384", "SHA-512"],
-          description: "Hash algorithm to use"
-        }
-      },
-      additionalProperties: false
-    });
-
-    expect(uuid?.inputSchema).toEqual({
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    });
-
-    expect(regex?.inputSchema).toEqual({
-      type: "object",
-      properties: {
-        pattern: { type: "string", description: "Regular expression pattern" },
-        text: { type: "string", description: "Text to test against the pattern" },
-        flags: { type: "string", description: "Optional RegExp flags" }
-      },
-      additionalProperties: false
-    });
-
-    expect(timestamp?.inputSchema).toEqual({
-      type: "object",
-      properties: {
-        value: {
-          description: "Date string or Unix timestamp in seconds"
-        }
-      },
-      additionalProperties: false
-    });
-  });
-
-  it("hides key-gated tools when env keys are absent", () => {
-    const names = getEnabledTools({}).map((tool) => tool.name);
-
-    expect(names).not.toContain("tavily_search");
-    expect(names).not.toContain("context7_query-docs");
-    expect(names).not.toContain("exa_search");
-  });
-
-  it("includes external tools when matching env keys are present with canonical names", () => {
-    const tools = getEnabledTools({
-      TAVILY_API_KEYS: "t1,t2",
-      CONTEXT7_API_KEYS: "c1,c2",
-      UNSPLASH_ACCESS_KEYS: "u1",
-      PUREMD_API_KEYS: "p1",
-      EXA_API_KEYS: "e1,e2"
-    });
-    const names = tools.map((tool) => tool.name);
-    const context7Resolve = tools.find((tool) => tool.name === "context7_resolve-library-id");
-    const context7Query = tools.find((tool) => tool.name === "context7_query-docs");
-    const tavilySearch = tools.find((tool) => tool.name === "tavily_search");
-    const tavilyExtract = tools.find((tool) => tool.name === "tavily_extract");
-    const tavilyCrawl = tools.find((tool) => tool.name === "tavily_crawl");
-    const unsplash = tools.find((tool) => tool.name === "unsplash_search_photos");
-    const puremd = tools.find((tool) => tool.name === "puremd_extract");
-    const exaSearch = tools.find((tool) => tool.name === "exa_search");
-    const newsGetNews = tools.find((tool) => tool.name === "news_get_news");
-    const newsGetNewsDetail = tools.find((tool) => tool.name === "news_get_news_detail");
-    const newsGetTopics = tools.find((tool) => tool.name === "news_get_topics");
-    const newsGetRegions = tools.find((tool) => tool.name === "news_get_regions");
-
     expect(names).toContain("tavily_search");
-    expect(names).toContain("tavily_extract");
-    expect(names).toContain("tavily_crawl");
-    expect(names).not.toContain("tavily_research");
-    expect(names).toContain("context7_resolve-library-id");
-    expect(names).toContain("context7_query-docs");
-    expect(names).toContain("unsplash_search_photos");
-    expect(names).toContain("puremd_extract");
-    expect(names).toContain("exa_search");
-    expect(names).toContain("news_get_news");
-    expect(names).toContain("news_get_news_detail");
-    expect(names).toContain("news_get_topics");
-    expect(names).toContain("news_get_regions");
+    expect(names).toContain("context7_resolve_library_id");
+    expect(names).not.toContain("tavily.search");
+    expect(names).not.toContain("context7.resolve-library-id");
+    expect(names.every((name) => !name.includes("-"))).toBe(true);
+  });
 
-    expect(context7Resolve?.inputSchema.properties).toMatchObject({
-      query: { type: "string" },
-      libraryName: { type: "string" },
-      library_name: { type: "string" }
+  it("projects manifest entries into tool definitions", () => {
+    expect(buildToolDefinitions(manifest)).toEqual([
+      {
+        name: "weather",
+        description: "Get current weather for a location.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string" }
+          },
+          additionalProperties: false
+        },
+        requiresEnv: undefined
+      },
+      {
+        name: "tavily_search",
+        description: "Search the web with Tavily.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string" }
+          },
+          required: ["query"],
+          additionalProperties: false
+        },
+        requiresEnv: "TAVILY_API_KEYS"
+      },
+      {
+        name: "context7_resolve_library_id",
+        description: "Resolve a Context7 library identifier.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string" }
+          },
+          additionalProperties: false
+        },
+        requiresEnv: "CONTEXT7_API_KEYS"
+      }
+    ]);
+  });
+
+  it("builds alias and handler maps from manifest entries", async () => {
+    const aliasMap = buildAliasMap(manifest);
+    const handlerMap = buildHandlerMap(manifest);
+    const handler = handlerMap.get("tavily_search");
+
+    expect(aliasMap.get("forecast.current")).toBe("weather");
+    expect(aliasMap.get("tavily.search")).toBe("tavily_search");
+    expect(handler).toBeTypeOf("function");
+
+    await expect(
+      handler?.({}, { env: {}, request: new Request("https://example.com/mcp", { method: "POST" }) })
+    ).resolves.toEqual({ ok: true, data: { ok: true } });
+  });
+
+  it("keeps existing registry alias resolution independent from manifest projections", () => {
+    expect(findEnabledTool("tavily.search", { TAVILY_API_KEYS: "tvly" })?.name).toBe("tavily_search");
+    expect(findEnabledTool("context7.resolve-library-id", { CONTEXT7_API_KEYS: "ctx" })?.name).toBe(
+      "context7_resolve_library_id"
+    );
+    expect(findEnabledTool("context7_resolve_library_id", { CONTEXT7_API_KEYS: "ctx" })?.name).toBe(
+      "context7_resolve_library_id"
+    );
+    expect(findEnabledTool("weather", {})?.name).toBe("weather");
+  });
+
+  it("does not call projected handlers while resolving registry aliases", () => {
+    const aliasMap = buildAliasMap(manifest);
+    const handlerMap = buildHandlerMap([
+      {
+        ...manifest[1]!,
+        handler: vi.fn(stubHandler)
+      }
+    ]);
+
+    expect(aliasMap.get("tavily.search")).toBe("tavily_search");
+    expect(handlerMap.get("tavily_search")).toBeDefined();
+    expect(handlerMap.get("tavily_search")).not.toHaveBeenCalled();
+  });
+
+  it("enables paper tools with canonical underscore names while gating only open access by env", () => {
+    const namesWithoutUnpaywall = getEnabledTools({}).map((tool) => tool.name);
+    const namesWithUnpaywall = getEnabledTools({ PAPER_SEARCH_MCP_UNPAYWALL_EMAILS: "a@example.com" }).map((tool) => tool.name);
+
+    expect(namesWithoutUnpaywall).toContain("paper_search");
+    expect(namesWithoutUnpaywall).toContain("paper_get_details");
+    expect(namesWithoutUnpaywall).toContain("paper_get_related");
+    expect(namesWithoutUnpaywall).not.toContain("paper_get_open_access");
+    expect(namesWithUnpaywall).toContain("paper_get_open_access");
+    expect(namesWithUnpaywall).not.toContain("paper-search");
+    expect(namesWithUnpaywall.every((name) => !name.includes("-"))).toBe(true);
+  });
+
+  it("resolves legacy paper aliases without exposing them in tools/list", () => {
+    const names = getEnabledTools({ PAPER_SEARCH_MCP_UNPAYWALL_EMAILS: "a@example.com" }).map((tool) => tool.name);
+
+    expect(names).not.toContain("paper-search");
+    expect(findEnabledTool("paper-search", {})?.name).toBe("paper_search");
+    expect(findEnabledTool("paper-get-details", {})?.name).toBe("paper_get_details");
+    expect(findEnabledTool("paper-get-related", {})?.name).toBe("paper_get_related");
+    expect(findEnabledTool("paper-get-open-access", {})?.name).toBeUndefined();
+    expect(findEnabledTool("paper-get-open-access", { PAPER_SEARCH_MCP_UNPAYWALL_EMAILS: "a@example.com" })?.name).toBe("paper_get_open_access");
+  });
+
+  it("keeps paper manifest copy aligned with current behavior", () => {
+    const paperEntries = getEnabledTools({ PAPER_SEARCH_MCP_UNPAYWALL_EMAILS: "a@example.com" }).filter((tool) =>
+      ["paper_search", "paper_get_related", "paper_get_open_access"].includes(tool.name)
+    );
+
+    expect(paperEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "paper_search",
+          description: "Search scholarly papers across Crossref and OpenAlex"
+        }),
+        expect.objectContaining({
+          name: "paper_get_related",
+          description: "Get papers related to an OpenAlex work id or DOI"
+        }),
+        expect.objectContaining({
+          name: "paper_get_open_access",
+          description: "Get open access availability and links for a paper DOI"
+        })
+      ])
+    );
+  });
+
+  it("documents paper_search in the README tool surface", () => {
+    expect(readme).toContain("paper_search");
+  });
+
+  it("documents weather in the README tool surface", () => {
+    expect(readme).toContain("weather");
+  });
+
+  it("keeps iplookup enabled without provider env", () => {
+    const names = getEnabledTools({}).map((tool) => tool.name);
+
+    expect(names).toContain("iplookup");
+  });
+
+  it("does not document deprecated dotted Tavily names in the README", () => {
+    expect(readme).not.toContain("tavily.search");
+  });
+
+  it("does not expose any news tools from getEnabledTools", () => {
+    const names = getEnabledTools({}).map((tool) => tool.name);
+
+    expect(names).not.toContain("news_get_news");
+    expect(names).not.toContain("news_get_news_detail");
+    expect(names).not.toContain("news_get_topics");
+    expect(names).not.toContain("news_get_regions");
+  });
+
+  it("documents news tools as intentionally disabled in this release", () => {
+    expect(readme).toContain("News tools are intentionally disabled in this release.");
+    expect(readme).not.toContain("External tools: `iplookup`, `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `news_get_news`, `news_get_news_detail`, `news_get_topics`, `news_get_regions`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`");
+  });
+
+  it("validates anyOf properties used by manifest schemas", () => {
+    const schema: JsonSchema = {
+      type: "object",
+      properties: {
+        urls: {
+          anyOf: [
+            { type: "string" },
+            { type: "array", items: { type: "string" } }
+          ]
+        }
+      },
+      required: ["urls"],
+      additionalProperties: false
+    };
+
+    expect(validateToolArguments(schema, { urls: "https://example.com" })).toBeUndefined();
+    expect(validateToolArguments(schema, { urls: ["https://example.com"] })).toBeUndefined();
+    expect(validateToolArguments(schema, { urls: 123 })).toBe("Invalid params");
+    expect(validateToolArguments(schema, { urls: ["https://example.com", 123] })).toBe("Invalid params");
+  });
+
+  it("keeps paper manifest schemas as plain top-level objects without anyOf", () => {
+    const tools = getToolDefinitions({ PAPER_SEARCH_MCP_UNPAYWALL_EMAILS: "a@example.com" });
+    const detailsSchema = tools.find((tool) => tool.name === "paper_get_details")?.inputSchema as JsonSchema;
+    const relatedSchema = tools.find((tool) => tool.name === "paper_get_related")?.inputSchema as JsonSchema;
+
+    expect(detailsSchema).toMatchObject({
+      type: "object",
+      properties: {
+        doi: { type: "string", minLength: 1 },
+        arxiv_id: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
     });
-    expect(context7Resolve?.inputSchema.required).toBeUndefined();
-    expect(context7Query?.inputSchema.required).toEqual(["libraryId", "query"]);
+    expect(detailsSchema).not.toHaveProperty("anyOf");
 
-    expect(tavilySearch?.inputSchema.properties).toHaveProperty("search_depth");
-    expect(tavilySearch?.inputSchema.properties).toHaveProperty("include_domains");
-    expect(tavilyExtract?.inputSchema.properties).toHaveProperty("extract_depth");
-    expect(tavilyExtract?.inputSchema.properties).toHaveProperty("include_favicon");
-    expect(tavilyCrawl?.inputSchema.properties).toHaveProperty("url");
-    expect(tavilyCrawl?.inputSchema.properties).toHaveProperty("exclude_domains");
-
-    expect(unsplash?.inputSchema.properties).toHaveProperty("per_page");
-    expect(unsplash?.inputSchema.properties).toHaveProperty("order_by");
-
-    expect(puremd?.inputSchema.properties).toHaveProperty("requestheaders");
-    expect(puremd?.inputSchema.properties).toHaveProperty("schema");
-
-    expect(exaSearch?.inputSchema.required).toEqual(["query"]);
-    expect(exaSearch?.inputSchema.properties).toHaveProperty("limit");
-    expect(exaSearch?.inputSchema.properties).toHaveProperty("search_type");
-    expect(exaSearch?.inputSchema.properties).toHaveProperty("include_summary");
-    expect(exaSearch?.inputSchema.properties).toHaveProperty("summary_query");
-    expect(exaSearch?.inputSchema.properties).toHaveProperty("user_location");
-
-    expect(newsGetNews?.inputSchema.properties).toHaveProperty("topics");
-    expect(newsGetNews?.inputSchema.properties).toHaveProperty("order_by");
-    expect(newsGetNewsDetail?.inputSchema.required).toEqual(["event_id"]);
-    expect(newsGetTopics?.inputSchema.properties).toEqual({});
-    expect(newsGetRegions?.inputSchema.properties).toEqual({});
-  });
-
-  it("resolves legacy dotted tool names to canonical names", () => {
-    const canonical = findEnabledTool("tavily_search", { TAVILY_API_KEYS: "t1" });
-    const legacy = findEnabledTool("tavily.search", { TAVILY_API_KEYS: "t1" });
-
-    expect(canonical?.name).toBe("tavily_search");
-    expect(legacy?.name).toBe("tavily_search");
-  });
-
-  it("filters enabled tools by legacy exact name and namespace prefix", () => {
-    const names = getEnabledTools(
-      { TAVILY_API_KEYS: "t1" },
-      {
-        disabledTools: ["tavily.search", "calc"]
-      }
-    ).map((tool) => tool.name);
-
-    expect(names).not.toContain("calc");
-    expect(names).not.toContain("tavily_search");
-    expect(names).toContain("tavily_extract");
-    expect(names).toContain("weather");
-  });
-
-  it("filters enabled tools by legacy namespace prefix", () => {
-    const names = getEnabledTools(
-      { TAVILY_API_KEYS: "t1" },
-      {
-        disabledTools: ["tavily.*", "calc"]
-      }
-    ).map((tool) => tool.name);
-
-    expect(names).not.toContain("calc");
-    expect(names).not.toContain("tavily_search");
-    expect(names).not.toContain("tavily_extract");
-    expect(names).not.toContain("tavily_crawl");
-    expect(names).toContain("weather");
-  });
-
-  it("routes tools/list with env-gated tools and no domain tools using canonical names", async () => {
-    const request = { jsonrpc: "2.0" as const, id: 1, method: "tools/list" };
-
-    const withoutEnv = await handleJsonRpc(request, {}, originalRequest);
-    const withoutEnvBody = (await withoutEnv.json()) as { result: { tools: { name: string }[] } };
-    const withoutEnvNames = withoutEnvBody.result.tools.map((tool) => tool.name);
-
-    const withEnv = await handleJsonRpc(request, { TAVILY_API_KEYS: "tvly-a" }, originalRequest);
-    const withEnvBody = (await withEnv.json()) as { result: { tools: { name: string }[] } };
-    const withEnvNames = withEnvBody.result.tools.map((tool) => tool.name);
-
-    expect(withoutEnvNames).not.toContain("tavily_search");
-    expect(withoutEnvNames).not.toContain("tavily_crawl");
-    expect(withoutEnvNames).not.toContain("tavily_research");
-    expect(withoutEnvNames).toContain("news_get_news");
-    expect(withoutEnvNames).toContain("news_get_news_detail");
-    expect(withoutEnvNames).toContain("news_get_topics");
-    expect(withoutEnvNames).toContain("news_get_regions");
-    expect(withoutEnvNames).not.toContain("domain_check_domain");
-    expect(withoutEnvNames).not.toContain("domain_explore_name");
-    expect(withoutEnvNames).not.toContain("domain_search_domains");
-    expect(withoutEnvNames).not.toContain("domain_list_categories");
-    expect(withEnvNames).toContain("tavily_search");
-    expect(withEnvNames).toContain("tavily_crawl");
-    expect(withEnvNames).not.toContain("tavily_research");
-    expect(withEnvNames).toContain("news_get_news");
-    expect(withEnvNames).toContain("news_get_news_detail");
-    expect(withEnvNames).toContain("news_get_topics");
-    expect(withEnvNames).toContain("news_get_regions");
-    expect(withEnvNames).not.toContain("domain_check_domain");
-  });
-
-  it("does not expose any domain tools even when external env keys are configured", () => {
-    const names = getEnabledTools({
-      TAVILY_API_KEYS: "t1",
-      CONTEXT7_API_KEYS: "c1",
-      UNSPLASH_ACCESS_KEYS: "u1",
-      PUREMD_API_KEYS: "p1"
-    }).map((tool) => tool.name);
-
-    expect(names).not.toContain("domain_check_domain");
-    expect(names).not.toContain("domain_explore_name");
-    expect(names).not.toContain("domain_search_domains");
-    expect(names).not.toContain("domain_list_categories");
+    expect(relatedSchema).toMatchObject({
+      type: "object",
+      properties: {
+        paper_id: { type: "string", minLength: 1 },
+        doi: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
+    });
+    expect(relatedSchema).not.toHaveProperty("anyOf");
   });
 });

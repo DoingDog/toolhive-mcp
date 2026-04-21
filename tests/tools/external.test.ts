@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleJsonRpc } from "../../src/mcp/router";
+import { toolManifestEntries } from "../../src/mcp/tool-manifest";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../../src/tools/external/context7";
 import {
   handleDomainCheckDomain,
@@ -29,7 +30,7 @@ afterEach(() => {
 });
 
 describe("IP lookup tool", () => {
-  it("returns curated fields and raw data on success", async () => {
+  it("keeps raw payloads opt-in and emits compact metadata by default", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         status: "success",
@@ -77,28 +78,30 @@ describe("IP lookup tool", () => {
         mobile: false,
         proxy: false,
         hosting: true,
-        raw: {
-          status: "success",
-          query: "1.1.1.1",
-          country: "Australia",
-          countryCode: "AU",
-          region: "QLD",
-          regionName: "Queensland",
-          city: "South Brisbane",
-          timezone: "Australia/Brisbane",
-          lat: -27.4748,
-          lon: 153.017,
-          zip: "4101",
-          isp: "APNIC and Cloudflare DNS Resolver project",
-          org: "Cloudflare",
-          as: "AS13335 Cloudflare, Inc.",
-          asname: "CLOUDFLARENET",
-          mobile: false,
-          proxy: false,
-          hosting: true
-        }
+        provider_used: "ip-api",
+        cached: false,
+        partial: false
       }
     });
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty("raw");
+    }
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://ip-api.com/json/1.1.1.1?fields=55312383"
+    );
+  });
+
+  it("uses the free HTTP endpoint when the IP lookup request is executed", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        status: "success",
+        query: "1.1.1.1"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleIpLookup({ query: "1.1.1.1" });
+
     expect(fetchMock).toHaveBeenCalledWith(
       "http://ip-api.com/json/1.1.1.1?fields=55312383"
     );
@@ -180,7 +183,7 @@ describe("Exa HTTP API tool", () => {
     });
   });
 
-  it("maps Exa request and response fields", async () => {
+  it("maps Exa request and response fields with compact default metadata", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         requestId: "req_123",
@@ -253,27 +256,14 @@ describe("Exa HTTP API tool", () => {
             favicon: "https://example.com/favicon.ico"
           }
         ],
-        raw: {
-          requestId: "req_123",
-          results: [
-            {
-              id: "res_1",
-              title: "Example result",
-              url: "https://example.com/article",
-              publishedDate: "2026-04-10T00:00:00.000Z",
-              author: "Author",
-              score: 0.98,
-              text: "article text",
-              highlights: ["highlight 1"],
-              summary: "short summary",
-              image: "https://example.com/image.jpg",
-              favicon: "https://example.com/favicon.ico"
-            }
-          ],
-          autopromptString: "exa raw"
-        }
+        provider_used: "exa",
+        cached: false,
+        partial: false
       }
     });
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty("raw");
+    }
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.exa.ai/search",
       expect.objectContaining({
@@ -331,10 +321,9 @@ describe("Exa HTTP API tool", () => {
       data: {
         request_id: "req_456",
         results: [],
-        raw: {
-          requestId: "req_456",
-          results: []
-        }
+        provider_used: "exa",
+        cached: false,
+        partial: false
       }
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -547,6 +536,39 @@ describe("Tavily HTTP API tools", () => {
     );
   });
 
+  it("rejects invalid Tavily extract urls types through JSON-RPC before handler dispatch", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ results: [], failed_results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily_extract",
+          arguments: {
+            urls: 123
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32602,
+        message: "Invalid params"
+      }
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("posts crawl requests to Tavily HTTP API", async () => {
     const fetchMock = vi.fn(async () => Response.json({ base_url: "https://example.com", results: [] }));
     vi.stubGlobal("fetch", fetchMock);
@@ -642,14 +664,51 @@ describe("Tavily HTTP API tools", () => {
     });
   });
 
-  it("keeps legacy dotted Tavily names working through JSON-RPC", async () => {
+  it("dispatches through the manifest handler map for canonical and legacy aliases", async () => {
     const fetchMock = vi.fn(async () => Response.json({ query: "mcp", results: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleJsonRpc(
+    const canonicalEntry = toolManifestEntries.find((entry) => entry.name === "tavily_search");
+    const legacyEntry = toolManifestEntries.find((entry) => entry.aliases.includes("tavily.search"));
+
+    expect(canonicalEntry?.handler).toBe(legacyEntry?.handler);
+    expect(canonicalEntry).toBeDefined();
+
+    const manifestHandlerSpy = vi.spyOn(canonicalEntry!, "handler");
+
+    const canonicalResponse = await handleJsonRpc(
       {
         jsonrpc: "2.0",
         id: 1,
+        method: "tools/call",
+        params: {
+          name: "tavily_search",
+          arguments: {
+            query: "mcp",
+            max_results: 3
+          }
+        }
+      },
+      { TAVILY_API_KEYS: "tvly-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+
+    expect(canonicalResponse.status).toBe(200);
+    await expect(canonicalResponse.json()).resolves.toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("results")
+          }
+        ]
+      }
+    });
+
+    const legacyResponse = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
         method: "tools/call",
         params: {
           name: "tavily.search",
@@ -662,14 +721,9 @@ describe("Tavily HTTP API tools", () => {
       { TAVILY_API_KEYS: "tvly-test" },
       new Request("https://example.com/mcp", { method: "POST" })
     );
-    const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.tavily.com/search",
-      expect.objectContaining({ method: "POST" })
-    );
-    expect(body).toMatchObject({
+    expect(legacyResponse.status).toBe(200);
+    await expect(legacyResponse.json()).resolves.toMatchObject({
       result: {
         content: [
           {
@@ -679,6 +733,18 @@ describe("Tavily HTTP API tools", () => {
         ]
       }
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.tavily.com/search",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.tavily.com/search",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(manifestHandlerSpy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -776,8 +842,16 @@ describe("Domain tools", () => {
 });
 
 describe("News tools", () => {
-  it("gets news from the default newsmcp endpoint and forwards query params", async () => {
-    const fetchMock = vi.fn(async () => Response.json({ events: [] }));
+  it("keeps raw payloads opt-in and emits compact metadata by default", async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      events: [],
+      page: 2,
+      per_page: 10,
+      total: 42,
+      request_id: "req_123",
+      debug: { trace: true },
+      links: { next: "/news/?page=3" }
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await handleNewsGetNews({
@@ -789,7 +863,24 @@ describe("News tools", () => {
       order_by: "time"
     });
 
-    expect(result).toEqual({ ok: true, data: { events: [] } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        events: [],
+        page: 2,
+        per_page: 10,
+        total: 42,
+        request_id: "req_123",
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty("raw");
+      expect(result.data).not.toHaveProperty("debug");
+      expect(result.data).not.toHaveProperty("links");
+    }
     expect(fetchMock).toHaveBeenCalledWith(
       "https://newsmcp.io/v1/news/?topics=ai&geo=us&hours=24&page=2&per_page=10&order_by=time",
     );
@@ -804,7 +895,15 @@ describe("News tools", () => {
       { NEWS_API_BASE_URL: "https://mirror.example/api" }
     );
 
-    expect(result).toEqual({ ok: true, data: { events: [] } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        events: [],
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://mirror.example/api/news/?topics=ai",
     );
@@ -816,8 +915,34 @@ describe("News tools", () => {
 
     const result = await handleNewsGetNewsDetail({ event_id: "evt_123" });
 
-    expect(result).toEqual({ ok: true, data: { event_id: "evt_123" } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        event_id: "evt_123",
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
     expect(fetchMock).toHaveBeenCalledWith("https://newsmcp.io/v1/news/evt_123/");
+  });
+
+  it("encodes special characters in news detail event_id path segments", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ event_id: "evt/with space?#" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleNewsGetNewsDetail({ event_id: "evt/with space?#" });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        event_id: "evt/with space?#",
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://newsmcp.io/v1/news/evt%2Fwith%20space%3F%23/");
   });
 
   it("gets available news topics", async () => {
@@ -826,7 +951,15 @@ describe("News tools", () => {
 
     const result = await handleNewsGetTopics({});
 
-    expect(result).toEqual({ ok: true, data: { topics: ["ai"] } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        topics: ["ai"],
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
     expect(fetchMock).toHaveBeenCalledWith("https://newsmcp.io/v1/news/topics/");
   });
 
@@ -836,7 +969,15 @@ describe("News tools", () => {
 
     const result = await handleNewsGetRegions({});
 
-    expect(result).toEqual({ ok: true, data: { regions: ["us"] } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        regions: ["us"],
+        provider_used: "news",
+        cached: false,
+        partial: false
+      }
+    });
     expect(fetchMock).toHaveBeenCalledWith("https://newsmcp.io/v1/news/regions/");
   });
 
@@ -862,6 +1003,22 @@ describe("News tools", () => {
       error: expect.objectContaining({
         type: "upstream_error",
         message: "News API returned invalid JSON"
+      })
+    });
+  });
+
+  it("returns upstream_error when News API request throws", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("network down");
+    }));
+
+    const result = await handleNewsGetTopics({});
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "News API request failed: network down"
       })
     });
   });
@@ -1122,6 +1279,87 @@ describe("Context7 tool", () => {
       "https://mcp.context7.com/mcp",
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  it("routes canonical Context7 resolve names through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "ok" }] } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "context7_resolve_library_id",
+          arguments: {
+            query: "react"
+          }
+        }
+      },
+      { CONTEXT7_API_KEYS: "ctx-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://mcp.context7.com/mcp",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("ok")
+          }
+        ]
+      }
+    });
+  });
+
+  it("routes canonical Context7 query names through JSON-RPC", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "docs" }] } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "context7_query_docs",
+          arguments: {
+            libraryId: "lib",
+            query: "hooks"
+          }
+        }
+      },
+      { CONTEXT7_API_KEYS: "ctx-test" },
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://mcp.context7.com/mcp",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("docs")
+          }
+        ]
+      }
+    });
   });
 });
 

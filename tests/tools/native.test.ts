@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleJsonRpc } from "../../src/mcp/router";
+import { fetchGuardedText } from "../../src/lib/upstream";
 import { handleCalc } from "../../src/tools/native/calc";
 import { handleWhoami } from "../../src/tools/native/ip";
 import { handleTime } from "../../src/tools/native/time";
@@ -85,16 +86,18 @@ describe("native tools", () => {
     }
   });
 
-  it("webfetch GET can return response headers", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response("hello", {
+  it("webfetch emits compact metadata by default and keeps response headers opt-in", async () => {
+    const fetchMock = vi.fn(async () => {
+      const response = new Response("hello", {
         status: 200,
         headers: {
           "content-type": "text/plain",
           "x-test": "ok"
         }
-      })
-    );
+      });
+      Object.defineProperty(response, "url", { value: "https://example.com/hello" });
+      return response;
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await handleWebfetch(
@@ -115,10 +118,54 @@ describe("native tools", () => {
         status: 200,
         url: "https://example.com/hello",
         body: "hello",
+          provider_used: "webfetch",
+          content_length: 5,
+          truncated: false,
+          cached: false,
+          partial: false,
         headers: expect.objectContaining({
           "content-type": "text/plain",
           "x-test": "ok"
         })
+      }
+    });
+  });
+
+  it("webfetch returns the final response URL after redirects with compact metadata", async () => {
+    const fetchMock = vi.fn(async () => {
+      const response = new Response("redirected", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain"
+        }
+      });
+      Object.defineProperty(response, "url", { value: "https://example.com/final" });
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/original"
+      },
+      context
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/original",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/final",
+        body: "redirected",
+        provider_used: "webfetch",
+        content_length: 10,
+        truncated: false,
+        cached: false,
+        partial: false,
       }
     });
   });
@@ -145,6 +192,188 @@ describe("native tools", () => {
     );
   });
 
+  it("webfetch rejects GET requests with a body", async () => {
+    const fetchMock = vi.fn(async () => new Response("ignored", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/get",
+        method: "GET",
+        body: "hello=world"
+      },
+      context
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe("validation_error");
+      expect(result.error.message).toContain("body is only allowed for POST");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("webfetch marks truncated responses with byte-length metadata", async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode("你"));
+              controller.enqueue(encoder.encode("a"));
+              controller.close();
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/plain",
+              "content-length": "4"
+            }
+          }
+        )
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/large",
+        max_bytes: 3
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/large",
+        body: "你",
+          provider_used: "webfetch",
+          content_length: 4,
+          truncated: true,
+          cached: false,
+          partial: false,
+      }
+    });
+  });
+
+  it("webfetch stops reading once max_bytes is reached instead of buffering the full response", async () => {
+    const encoder = new TextEncoder();
+    let pulledChunks = 0;
+    let cancelCalled = false;
+    let responseFullyRead = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              pulledChunks += 1;
+              if (pulledChunks === 1) {
+                controller.enqueue(encoder.encode("abc"));
+                return;
+              }
+
+              if (pulledChunks === 2) {
+                controller.enqueue(encoder.encode("def"));
+                return;
+              }
+
+              responseFullyRead = true;
+              controller.enqueue(encoder.encode("ghi"));
+              controller.close();
+            },
+            cancel() {
+              cancelCalled = true;
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/plain",
+              "content-length": "9"
+            }
+          }
+        )
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/stream",
+        max_bytes: 3
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/stream",
+        body: "abc",
+          provider_used: "webfetch",
+          content_length: 9,
+          truncated: true,
+          cached: false,
+          partial: false,
+      }
+    });
+    expect(cancelCalled || !responseFullyRead).toBe(true);
+  });
+
+  it("webfetch omits content_length when truncation happens without a content-length header", async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode("abc"));
+              controller.enqueue(encoder.encode("def"));
+              controller.close();
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/plain"
+            }
+          }
+        )
+      )
+    );
+
+    const result = await handleWebfetch(
+      {
+        url: "https://example.com/unknown-length",
+        max_bytes: 3
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        status: 200,
+        url: "https://example.com/unknown-length",
+        body: "abc",
+          provider_used: "webfetch",
+          truncated: true,
+          cached: false,
+          partial: false,
+      }
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty("content_length");
+    }
+  });
+
   it("webfetch converts HTML to markdown when requested", async () => {
     vi.stubGlobal(
       "fetch",
@@ -169,7 +398,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/article",
-        body: expect.stringContaining("# Hello")
+        body: expect.stringContaining("# Hello"),
+          provider_used: "webfetch",
+          content_length: 45,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
     expect(result.ok).toBe(true);
@@ -204,7 +438,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/xhtml",
-        body: expect.stringContaining("# Hello")
+        body: expect.stringContaining("# Hello"),
+          provider_used: "webfetch",
+          content_length: 45,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
     if (result.ok) {
@@ -214,7 +453,7 @@ describe("native tools", () => {
     }
   });
 
-  it("webfetch returns raw HTML unchanged when format is omitted", async () => {
+  it("webfetch converts HTML to markdown when format is omitted", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -237,9 +476,23 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/article",
-        body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>"
+        body: expect.stringContaining("# Hello"),
+          provider_used: "webfetch",
+          content_length: 57,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual(expect.objectContaining({
+        body: expect.stringContaining("World")
+      }));
+      expect(result.data).toEqual(expect.objectContaining({
+        body: expect.not.stringContaining("<article>")
+      }));
+    }
   });
 
   it("webfetch converts HTML to readable text when requested", async () => {
@@ -266,7 +519,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/article",
-        body: "Hello\n\nWorld\n\nAgain"
+        body: "Hello\n\nWorld\n\nAgain",
+          provider_used: "webfetch",
+          content_length: 57,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
   });
@@ -295,7 +553,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/article",
-        body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>"
+        body: "<article><h1>Hello</h1><p>World</p><p>Again</p></article>",
+          provider_used: "webfetch",
+          content_length: 57,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
   });
@@ -316,7 +579,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/data",
-        body: '{"ok":true}'
+        body: '{"ok":true}',
+          provider_used: "webfetch",
+          content_length: 11,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
 
@@ -327,7 +595,12 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/data",
-        body: '{"ok":true}'
+        body: '{"ok":true}',
+          provider_used: "webfetch",
+          content_length: 11,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
 
@@ -338,11 +611,108 @@ describe("native tools", () => {
       data: {
         status: 200,
         url: "https://example.com/data",
-        body: '{"ok":true}'
+        body: '{"ok":true}',
+          provider_used: "webfetch",
+          content_length: 11,
+          truncated: false,
+          cached: false,
+          partial: false,
       }
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("webfetch rejects timed out upstream fetches", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => {
+          reject(signal.reason);
+        }, { once: true });
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = handleWebfetch({ url: "https://example.com/fail" }, context);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe("upstream_error");
+        expect(result.error.message).toContain("timed out");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fetchGuardedText keeps timeout active when the caller already provides a signal", async () => {
+    vi.useFakeTimers();
+    try {
+      const callerController = new AbortController();
+      const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => {
+          reject(signal.reason);
+        }, { once: true });
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = fetchGuardedText(
+        {
+          url: "https://example.com/fail",
+          init: { signal: callerController.signal }
+        },
+        { serviceName: "webfetch", timeoutMs: 30_000 }
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await resultPromise;
+
+      expect(result).toMatchObject({
+        error: expect.objectContaining({
+          type: "upstream_error",
+          message: expect.stringContaining("timed out")
+        })
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fetchGuardedText preserves caller abort behavior when a timeout is also configured", async () => {
+    vi.useFakeTimers();
+    try {
+      const callerController = new AbortController();
+      const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => {
+          reject(signal.reason);
+        }, { once: true });
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = fetchGuardedText(
+        {
+          url: "https://example.com/fail",
+          init: { signal: callerController.signal }
+        },
+        { serviceName: "webfetch", timeoutMs: 30_000 }
+      );
+      callerController.abort(new Error("caller cancelled"));
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result).toMatchObject({
+        error: expect.objectContaining({
+          type: "upstream_error",
+          message: expect.stringContaining("caller cancelled")
+        })
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("webfetch rejects upstream fetch failures", async () => {
