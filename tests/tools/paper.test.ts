@@ -408,6 +408,64 @@ describe("paper tool surface", () => {
     );
   });
 
+  it("routes plain DOI queries through exact lookup instead of generic full-text search", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works/10.1000%2Ftest") {
+        return Response.json({
+          message: {
+            DOI: "10.1000/test",
+            title: ["Plain DOI Paper"],
+            issued: { "date-parts": [[2024]] }
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?filter=doi:10.1000%2Ftest") {
+        return Response.json({
+          results: [
+            {
+              id: "https://openalex.org/W1234567890",
+              doi: "https://doi.org/10.1000/test",
+              title: "Plain DOI Paper",
+              publication_year: 2024
+            }
+          ]
+        });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "10.1000/test" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "10.1000/test",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Plain DOI Paper",
+            doi: "10.1000/test"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=10.1000%2Ftest&rows=10",
+      expect.anything()
+    );
+  });
+
   it("ranks exact-title canonical papers ahead of derivative and supplementary records", async () => {
     const handler = getToolHandler("paper_search");
     const context = {
