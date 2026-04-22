@@ -571,10 +571,17 @@ export async function handlePaperGetDetails(args: unknown, context: ToolContext)
     return validationError("doi or arxiv_id must be a non-empty string");
   }
 
+  const classification = classifyPaperInput(resolvedPaperId);
+  const enrichmentDoi = classification.kind === "arxiv_id"
+    ? classification.doi ?? doi
+    : classification.kind === "doi"
+      ? classification.doi
+      : doi;
+
   const providerResults = await Promise.allSettled([
-    ...(doi ? [fetchCrossrefDetails(doi), fetchOpenAlexDetails(doi)] : []),
-    ...(arxivId ? [fetchArxivDetails(arxivId)] : []),
-    ...(doi ? [lookupUnpaywallByDoi(doi, context.env)] : [])
+    ...(classification.kind === "arxiv_id" ? [fetchArxivDetails(classification.arxivId)] : []),
+    ...(enrichmentDoi ? [fetchCrossrefDetails(enrichmentDoi), fetchOpenAlexDetails(enrichmentDoi)] : []),
+    ...(enrichmentDoi ? [lookupUnpaywallByDoi(enrichmentDoi, context.env)] : [])
   ]);
 
   const providers: PaperProvider[] = [];
@@ -592,7 +599,11 @@ export async function handlePaperGetDetails(args: unknown, context: ToolContext)
     if ("provider" in value) {
       if (value.paper) {
         providers.push(value.provider);
-        papers.push(value.paper);
+        papers.push(
+          value.provider === "arxiv" && enrichmentDoi
+            ? { ...value.paper, doi: value.paper.doi ?? enrichmentDoi }
+            : value.paper
+        );
       }
       return;
     }
