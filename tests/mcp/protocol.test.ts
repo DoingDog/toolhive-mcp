@@ -26,7 +26,19 @@ describe("MCP protocol", () => {
     expect(response.status).toBe(405);
   });
 
-  it("returns initialize JSON-RPC result with package-backed serverInfo", async () => {
+  it("returns 204 with CORS headers for OPTIONS /mcp", async () => {
+    const response = await call("/mcp", { method: "OPTIONS" });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
+  });
+
+  it("returns initialize JSON-RPC result with package-backed serverInfo and CORS headers", async () => {
     const response = await call("/mcp", jsonRpcRequest("initialize", {}));
     const body = (await response.json()) as {
       jsonrpc: string;
@@ -48,6 +60,12 @@ describe("MCP protocol", () => {
         version: packageJson.version
       }
     });
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
     expect(body.result.capabilities.tools).toEqual({});
   });
 
@@ -65,7 +83,7 @@ describe("MCP protocol", () => {
     expect(await response.text()).toBe("");
   });
 
-  it("returns 401 for tools/list without credentials when auth keys are configured", async () => {
+  it("returns 401 with CORS headers for tools/list without credentials when auth keys are configured", async () => {
     const response = await call(
       "/mcp",
       jsonRpcRequest("tools/list", {}),
@@ -74,6 +92,12 @@ describe("MCP protocol", () => {
     const body = await response.json();
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
     expect(body).toEqual({
       jsonrpc: "2.0",
       id: 1,
