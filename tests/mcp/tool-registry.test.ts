@@ -244,9 +244,18 @@ describe("tool manifest task 1 infrastructure", () => {
     expect(readmeZhCn).not.toContain("paper-search");
   });
 
-  it("keeps generated README auth and demo copy present", () => {
+  it("keeps generated README auth and product documentation copy present", () => {
+    expect(readme).toContain("[中文](./README.zh-CN.md)");
+    expect(readmeZhCn).toContain("[English](./README.md)");
+
     for (const content of [readme, readmeZhCn]) {
-      expect(content).toContain("https://mcp.awsl.app/mcp");
+      expect(content).toContain("Claude");
+      expect(content).toContain("Cursor");
+      expect(content).toContain("Cline");
+      expect(content).toContain("Cherry Studio");
+      expect(content).toContain("Codex");
+      expect(content).toContain("https://mcp.awsl.app/mcp?key=elysia");
+      expect(content).toContain("https://github.com/DoingDog/toolhive-mcp");
       expect(content).toContain("Bearer");
       expect(content).toContain("x-api-key / API key");
       expect(content).toContain("query `key`");
