@@ -20,10 +20,16 @@ describe("MCP protocol", () => {
     expect(response.status).toBe(404);
   });
 
-  it("returns 405 for GET /mcp", async () => {
+  it("returns 405 with CORS headers for GET /mcp", async () => {
     const response = await call("/mcp", { method: "GET" });
 
     expect(response.status).toBe(405);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
   });
 
   it("returns 204 with CORS headers for OPTIONS /mcp", async () => {

@@ -73,7 +73,7 @@ export default {
     }
 
     if (request.method !== "POST") {
-      return METHOD_NOT_ALLOWED;
+      return withMcpCors(METHOD_NOT_ALLOWED);
     }
 
     let payload: unknown;
