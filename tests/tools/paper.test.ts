@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { getToolHandler } from "../../src/mcp/tool-manifest";
+import { classifyPaperInput } from "../../src/tools/paper/identifiers";
 import { classifyRelatedPaperId } from "../../src/tools/paper/search";
 import { normalizeArxivEntry } from "../../src/tools/paper/providers/arxiv";
 import { normalizeCrossrefWork } from "../../src/tools/paper/providers/crossref";
@@ -207,6 +208,22 @@ describe("OpenAlex paper provider", () => {
       citation_count: 123456,
       reference_count: 321,
       provider: "openalex"
+    });
+  });
+});
+
+describe("paper input classification", () => {
+  it("treats descriptive text queries as plain text input", () => {
+    expect(classifyPaperInput("vision transformer image recognition")).toEqual({
+      kind: "text",
+      query: "vision transformer image recognition"
+    });
+  });
+
+  it("treats arxiv-like prose as plain text instead of an exact arxiv id", () => {
+    expect(classifyPaperInput("arXiv 1706.03762 Attention Is All You Need")).toEqual({
+      kind: "text",
+      query: "arXiv 1706.03762 Attention Is All You Need"
     });
   });
 });
@@ -518,6 +535,119 @@ describe("paper tool surface", () => {
 
     expect(fetchMock).not.toHaveBeenCalledWith(
       "https://api.crossref.org/works?query=10.1000%2Ftest&rows=10",
+      expect.anything()
+    );
+  });
+
+  it("treats descriptive text queries as generic paper_search input", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=vision%20transformer%20image%20recognition&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1000/vision-transformer",
+                title: ["Vision Transformer for Image Recognition"],
+                issued: { "date-parts": [[2021]] }
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=vision%20transformer%20image%20recognition&per-page=10") {
+        return Response.json({ results: [] });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "vision transformer image recognition" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "vision transformer image recognition",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Vision Transformer for Image Recognition",
+            doi: "10.1000/vision-transformer"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=vision%20transformer%20image%20recognition&rows=10",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://export.arxiv.org/api/query?search_query=id:vision%20transformer%20image%20recognition&start=0&max_results=1",
+      expect.anything()
+    );
+  });
+
+  it("treats arxiv-like prose as generic text instead of an exact arxiv id", async () => {
+    const handler = getToolHandler("paper_search");
+    const context = {
+      env: {},
+      request: new Request("https://example.com/mcp", { method: "POST" })
+    };
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url === "https://api.crossref.org/works?query=arXiv%201706.03762%20Attention%20Is%20All%20You%20Need&rows=10") {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.48550/arXiv.1706.03762",
+                title: ["Attention Is All You Need"],
+                issued: { "date-parts": [[2017]] }
+              }
+            ]
+          }
+        });
+      }
+
+      if (url === "https://api.openalex.org/works?search=arXiv%201706.03762%20Attention%20Is%20All%20You%20Need&per-page=10") {
+        return Response.json({ results: [] });
+      }
+
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handler?.({ query: "arXiv 1706.03762 Attention Is All You Need" }, context)).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        query: "arXiv 1706.03762 Attention Is All You Need",
+        partial: false,
+        results: [
+          expect.objectContaining({
+            title: "Attention Is All You Need"
+          })
+        ]
+      })
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.crossref.org/works?query=arXiv%201706.03762%20Attention%20Is%20All%20You%20Need&rows=10",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "https://export.arxiv.org/api/query?search_query=id:arXiv%201706.03762%20Attention%20Is%20All%20You%20Need&start=0&max_results=1",
       expect.anything()
     );
   });
