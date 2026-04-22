@@ -144,6 +144,70 @@ describe("MCP protocol", () => {
     });
   });
 
+  it("fails closed for protected methods when MCP_AUTH_KEYS contains only invalid keys, while keeping initialize public by product constraint", async () => {
+    const unauthorizedResponse = await call(
+      "/mcp",
+      jsonRpcRequest("tools/list", {}),
+      { MCP_AUTH_KEYS: "bad.key,bad~key" }
+    );
+    const unauthorizedBody = await unauthorizedResponse.json();
+    const initializeResponse = await call(
+      "/mcp",
+      jsonRpcRequest("initialize", {}),
+      { MCP_AUTH_KEYS: "bad.key,bad~key" }
+    );
+
+    expect(unauthorizedResponse.status).toBe(401);
+    expect(unauthorizedBody).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+    expect(initializeResponse.status).toBe(200);
+  });
+
+  it("accepts only product-valid keys from mixed MCP_AUTH_KEYS values", async () => {
+    const validInit = jsonRpcRequest("tools/list", {});
+    const validResponse = await call(
+      "/mcp",
+      {
+        ...validInit,
+        headers: {
+          ...(validInit.headers as Record<string, string>),
+          Authorization: "Bearer valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key,bad.key" }
+    );
+    const invalidInit = jsonRpcRequest("tools/list", {});
+    const invalidResponse = await call(
+      "/mcp",
+      {
+        ...invalidInit,
+        headers: {
+          ...(invalidInit.headers as Record<string, string>),
+          Authorization: "Bearer bad.key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key,bad.key" }
+    );
+    const invalidBody = await invalidResponse.json();
+
+    expect(validResponse.status).toBe(200);
+    expect(invalidResponse.status).toBe(401);
+    expect(invalidBody).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+  });
+
   it("keeps initialize public when auth keys are configured", async () => {
     const response = await call(
       "/mcp",
