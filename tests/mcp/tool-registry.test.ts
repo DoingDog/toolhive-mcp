@@ -261,6 +261,9 @@ describe("tool manifest task 1 infrastructure", () => {
       expect(content).toContain("query `key`");
       expect(content).not.toContain("OAuth");
     }
+
+    expect(readme).not.toContain("Demo endpoint: `https://mcp.awsl.app/mcp`");
+    expect(readmeZhCn).not.toContain("演示地址：`https://mcp.awsl.app/mcp`");
   });
 
   it("does not expose any news tools from getEnabledTools", () => {

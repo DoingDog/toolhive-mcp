@@ -159,7 +159,7 @@ The block below is generated from the manifest and should be refreshed with `npm
 <!-- GENERATED:README_TOOLING:start -->
 ### Generated tool snapshot
 
-Demo endpoint: `https://mcp.awsl.app/mcp`
+Demo endpoint: `https://mcp.awsl.app/mcp?key=elysia`
 
 Supported auth:
 

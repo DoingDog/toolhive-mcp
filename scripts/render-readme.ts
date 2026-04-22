@@ -5,7 +5,7 @@ import { createServer } from "vite";
 const rootDir = resolve(import.meta.dirname, "..");
 const markerStart = "<!-- GENERATED:README_TOOLING:start -->";
 const markerEnd = "<!-- GENERATED:README_TOOLING:end -->";
-const demoUrl = "https://mcp.awsl.app/mcp";
+const demoUrl = "https://mcp.awsl.app/mcp?key=elysia";
 
 type Locale = "en" | "zh-CN";
 type Category = "native" | "external" | "devutils";

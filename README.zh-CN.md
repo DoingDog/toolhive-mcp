@@ -161,7 +161,7 @@ npx wrangler secret put PUREMD_API_KEYS
 <!-- GENERATED:README_TOOLING:start -->
 ### 自动生成的工具快照
 
-演示地址：`https://mcp.awsl.app/mcp`
+演示地址：`https://mcp.awsl.app/mcp?key=elysia`
 
 支持的认证方式：
 
