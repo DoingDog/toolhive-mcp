@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { bumpPatchVersion, prependChangelogEntry } from "./lib/release-utils";
+import { fileURLToPath } from "node:url";
+import { bumpPatchVersion, prependChangelogEntry } from "./lib/release-utils.ts";
 
 type PackageJson = {
   name: string;
@@ -9,10 +10,21 @@ type PackageJson = {
   scripts?: Record<string, string>;
 };
 
-const rootDir = resolve(import.meta.dirname, "..");
+type ReleasePlan = {
+  currentVersion: string;
+  nextVersion: string;
+  tagName: string;
+  releaseNotes: string[];
+  shouldPush: boolean;
+  pushCommandArgs: string[];
+};
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const rootDir = resolve(scriptDir, "..");
 const packageJsonPath = resolve(rootDir, "package.json");
 const changelogPath = resolve(rootDir, "CHANGELOG.md");
 const releaseDate = new Date().toISOString().slice(0, 10);
+const npmCliPath = resolve(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 const pushArgs = (tagName: string) => ["push", "origin", "HEAD", `refs/tags/${tagName}`];
 
 function runStep(command: string, args: string[]): void {
@@ -20,6 +32,10 @@ function runStep(command: string, args: string[]): void {
     cwd: rootDir,
     stdio: "inherit"
   });
+}
+
+function runNpmStep(args: string[]): void {
+  runStep(process.execPath, [npmCliPath, ...args]);
 }
 
 function runOutput(command: string, args: string[]): string {
@@ -57,36 +73,80 @@ function readCurrentVersion(): string {
   return packageJson.version;
 }
 
+function isPlanMode(): boolean {
+  return process.argv.includes("--plan");
+}
+
 function shouldPush(): boolean {
   return process.argv.includes("--push") || process.env.RELEASE_PUSH === "1";
 }
 
-function main(): void {
+function createReleasePlan(): ReleasePlan {
   const currentVersion = readCurrentVersion();
   const nextVersion = bumpPatchVersion(currentVersion);
   const tagName = `v${nextVersion}`;
   const releaseNotes = readReleaseNotes(currentVersion);
+  const shouldPushRelease = shouldPush();
 
-  runStep("npm", ["run", "render:readme"]);
-  runStep("npm", ["test"]);
-  runStep("npm", ["run", "typecheck"]);
+  return {
+    currentVersion,
+    nextVersion,
+    tagName,
+    releaseNotes,
+    shouldPush: shouldPushRelease,
+    pushCommandArgs: pushArgs(tagName)
+  };
+}
 
-  updatePackageVersion(nextVersion);
-  updateChangelog(nextVersion, releaseNotes);
+function printPlan(plan: ReleasePlan): void {
+  const changelogPreview = prependChangelogEntry(
+    "# Changelog\n\n## PREVIOUS - 1970-01-01\n\n- Previous entry\n",
+    plan.nextVersion,
+    releaseDate,
+    plan.releaseNotes
+  )
+    .split("\n")
+    .slice(0, plan.releaseNotes.length + 5)
+    .join("\n");
 
-  runStep("git", ["add", "package.json", "CHANGELOG.md", "README.md", "README.zh-CN.md"]);
-  runStep("git", ["commit", "-m", `release: ${tagName}`]);
-  runStep("git", ["tag", tagName]);
+  process.stdout.write(`Release plan (${plan.currentVersion} -> ${plan.nextVersion})\n`);
+  process.stdout.write(`- version bump: package.json ${plan.currentVersion} -> ${plan.nextVersion}\n`);
+  process.stdout.write(`- changelog entry:\n${changelogPreview}\n`);
+  process.stdout.write(`- commit: release: ${plan.tagName}\n`);
+  process.stdout.write(`- tag: ${plan.tagName}\n`);
+  process.stdout.write(
+    `- push: ${plan.shouldPush ? `git ${plan.pushCommandArgs.join(" ")}` : "skip (pass --push or RELEASE_PUSH=1 to enable)"}\n`
+  );
+  process.stdout.write("Plan mode made no file or git changes.\n");
+}
 
-  const pushCommandArgs = pushArgs(tagName);
+function main(): void {
+  const planMode = isPlanMode();
+  const plan = createReleasePlan();
 
-  if (shouldPush()) {
-    runStep("git", pushCommandArgs);
-  } else {
-    process.stdout.write(`Dry run: git ${pushCommandArgs.join(" ")}\n`);
+  runNpmStep(["run", "render:readme"]);
+  runNpmStep(["test"]);
+  runNpmStep(["run", "typecheck"]);
+
+  if (planMode) {
+    printPlan(plan);
+    return;
   }
 
-  process.stdout.write(`Prepared ${tagName}.\n`);
+  updatePackageVersion(plan.nextVersion);
+  updateChangelog(plan.nextVersion, plan.releaseNotes);
+
+  runStep("git", ["add", "package.json", "CHANGELOG.md", "README.md", "README.zh-CN.md"]);
+  runStep("git", ["commit", "-m", `release: ${plan.tagName}`]);
+  runStep("git", ["tag", plan.tagName]);
+
+  if (plan.shouldPush) {
+    runStep("git", plan.pushCommandArgs);
+  } else {
+    process.stdout.write(`Dry run: git ${plan.pushCommandArgs.join(" ")}\n`);
+  }
+
+  process.stdout.write(`Prepared ${plan.tagName}.\n`);
 }
 
 main();
