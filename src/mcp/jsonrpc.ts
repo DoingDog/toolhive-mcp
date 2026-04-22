@@ -15,22 +15,34 @@ export function jsonRpcResult(id: JsonRpcId, result: unknown): Response {
   });
 }
 
-export function jsonRpcError(id: JsonRpcId, code: number, message: string): Response {
-  return jsonResponse({
-    jsonrpc: "2.0",
-    id,
-    error: {
-      code,
-      message
-    }
-  });
+export function jsonRpcError(
+  id: JsonRpcId,
+  code: number,
+  message: string,
+  init?: ResponseInit
+): Response {
+  return jsonResponse(
+    {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code,
+        message
+      }
+    },
+    init
+  );
 }
 
-export function jsonResponse(body: unknown): Response {
+export function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json; charset=utf-8");
+  }
+
   return new Response(JSON.stringify(body), {
-    headers: {
-      "content-type": "application/json; charset=utf-8"
-    }
+    ...init,
+    headers
   });
 }
 

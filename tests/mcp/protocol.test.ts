@@ -3,10 +3,13 @@ import packageJson from "../../package.json";
 import worker from "../../src/worker";
 import { jsonRpcRequest } from "../helpers/request";
 
-const env = {};
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 
-async function call(path: string, init?: RequestInit): Promise<Response> {
+async function call(
+  path: string,
+  init?: RequestInit,
+  env: Record<string, string | undefined> = {}
+): Promise<Response> {
   return worker.fetch(new Request(`https://example.com${path}`, init), env, ctx);
 }
 
@@ -60,6 +63,95 @@ describe("MCP protocol", () => {
 
     expect(response.status).toBe(202);
     expect(await response.text()).toBe("");
+  });
+
+  it("returns 401 for tools/list without credentials when auth keys are configured", async () => {
+    const response = await call(
+      "/mcp",
+      jsonRpcRequest("tools/list", {}),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+  });
+
+  it("accepts Bearer credentials for tools/list", async () => {
+    const init = jsonRpcRequest("tools/list", {});
+    const response = await call(
+      "/mcp",
+      {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          Authorization: "Bearer valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts x-api-key credentials for tools/list", async () => {
+    const init = jsonRpcRequest("tools/list", {});
+    const response = await call(
+      "/mcp",
+      {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          "x-api-key": "valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts query param credentials for tools/call", async () => {
+    const response = await call(
+      "/mcp?key=valid-key",
+      jsonRpcRequest("tools/call", {
+        name: "devutils_base64_encode",
+        arguments: { text: "hello" }
+      }),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("aGVsbG8=")
+          }
+        ]
+      }
+    });
+  });
+
+  it("keeps initialize public when auth keys are configured", async () => {
+    const response = await call(
+      "/mcp",
+      jsonRpcRequest("initialize", {}),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
   });
 
   it("returns JSON-RPC method not found for unknown methods", async () => {
