@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "render:readme": "node --experimental-strip-types scripts/render-readme.ts",
+    "release:prepare": "node --experimental-strip-types scripts/release.ts",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
