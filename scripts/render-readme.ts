@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createServer } from "vite";
 
 const rootDir = resolve(import.meta.dirname, "..");
-const manifestPath = resolve(rootDir, "src/mcp/tool-manifest.ts");
 const markerStart = "<!-- GENERATED:README_TOOLING:start -->";
 const markerEnd = "<!-- GENERATED:README_TOOLING:end -->";
 const demoUrl = "https://mcp.awsl.app/mcp";
@@ -16,55 +16,32 @@ type ManifestSummary = {
   envGated: boolean;
 };
 
-function toCanonicalToolName(name: string): string {
-  return name.replace(/[.-]/g, "_");
-}
-
 function formatToolList(names: string[]): string {
   return names.map((name) => `\`${name}\``).join(", ");
 }
 
-function extractBlock(source: string, blockName: string): string {
-  const match = source.match(new RegExp(`const ${blockName}: ToolManifestEntry\\[] = \\[(.*?)\\];`, "s"));
+async function collectManifestSummary(): Promise<ManifestSummary[]> {
+  const vite = await createServer({
+    appType: "custom",
+    server: { middlewareMode: true }
+  });
 
-  if (!match?.[1]) {
-    throw new Error(`Unable to locate ${blockName} in tool manifest`);
+  try {
+    const manifestModule = await vite.ssrLoadModule("/src/mcp/tool-manifest.ts");
+    const entries = manifestModule.toolManifestEntries as Array<{
+      name: string;
+      category: Category;
+      envRequirement?: string;
+    }>;
+
+    return entries.map((entry) => ({
+      name: entry.name,
+      category: entry.category,
+      envGated: entry.envRequirement !== undefined
+    }));
+  } finally {
+    await vite.close();
   }
-
-  return match[1];
-}
-
-function collectManifestSummary(source: string): ManifestSummary[] {
-  const entries: ManifestSummary[] = [];
-  const nativeBlock = extractBlock(source, "nativeToolManifestEntries");
-  const paperBlock = extractBlock(source, "paperToolManifestEntries");
-  const externalBlock = extractBlock(source, "externalToolManifestEntries");
-
-  for (const match of nativeBlock.matchAll(/nativeTool\(\{[\s\S]*?name: "([^"]+)"[\s\S]*?\}\)/g)) {
-    entries.push({ name: match[1]!, category: "native", envGated: false });
-  }
-
-  for (const match of paperBlock.matchAll(/paperTool\(\{[\s\S]*?legacyName: "([^"]+)"([\s\S]*?)\}\)/g)) {
-    entries.push({
-      name: toCanonicalToolName(match[1]!),
-      category: "external",
-      envGated: /envRequirement:/s.test(match[2] ?? "")
-    });
-  }
-
-  for (const match of externalBlock.matchAll(/externalTool\(\{[\s\S]*?legacyName: "([^"]+)"([\s\S]*?)\}\)/g)) {
-    entries.push({
-      name: toCanonicalToolName(match[1]!),
-      category: "external",
-      envGated: /envRequirement:/s.test(match[2] ?? "")
-    });
-  }
-
-  for (const match of source.matchAll(/devutilsTool\("([^"]+)"/g)) {
-    entries.push({ name: `devutils_${match[1]!}`, category: "devutils", envGated: false });
-  }
-
-  return entries;
 }
 
 function getToolNames(entries: ManifestSummary[], category: Category, gated: boolean): string[] {
@@ -88,8 +65,8 @@ function renderBlock(locale: Locale, entries: ManifestSummary[]): string {
       "支持的认证方式：",
       "",
       "- Bearer",
-      "- API key",
-      "- OAuth",
+      "- x-api-key / API key",
+      "- query `key`",
       "",
       "基于 manifest 的工具列表：",
       "",
@@ -113,8 +90,8 @@ function renderBlock(locale: Locale, entries: ManifestSummary[]): string {
     "Supported auth:",
     "",
     "- Bearer",
-    "- API key",
-    "- OAuth",
+    "- x-api-key / API key",
+    "- query `key`",
     "",
     "Manifest-backed tool surface:",
     "",
@@ -145,8 +122,7 @@ function replaceGeneratedBlock(filePath: string, locale: Locale, entries: Manife
   writeFileSync(filePath, next);
 }
 
-const manifestSource = readFileSync(manifestPath, "utf8");
-const manifestEntries = collectManifestSummary(manifestSource);
+const manifestEntries = await collectManifestSummary();
 
 replaceGeneratedBlock(resolve(rootDir, "README.md"), "en", manifestEntries);
 replaceGeneratedBlock(resolve(rootDir, "README.zh-CN.md"), "zh-CN", manifestEntries);

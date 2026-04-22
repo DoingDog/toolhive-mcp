@@ -27,8 +27,8 @@ Demo endpoint: `https://mcp.awsl.app/mcp`
 Supported auth:
 
 - Bearer
-- API key
-- OAuth
+- x-api-key / API key
+- query `key`
 
 Manifest-backed tool surface:
 

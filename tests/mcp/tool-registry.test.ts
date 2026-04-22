@@ -248,8 +248,9 @@ describe("tool manifest task 1 infrastructure", () => {
     for (const content of [readme, readmeZhCn]) {
       expect(content).toContain("https://mcp.awsl.app/mcp");
       expect(content).toContain("Bearer");
-      expect(content).toContain("OAuth");
-      expect(content).toContain("API key");
+      expect(content).toContain("x-api-key / API key");
+      expect(content).toContain("query `key`");
+      expect(content).not.toContain("OAuth");
     }
   });
 
