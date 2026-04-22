@@ -1,5 +1,7 @@
 // @ts-expect-error Vitest loads raw markdown via Vite in tests.
 import readme from "../../README.md?raw";
+// @ts-expect-error Vitest loads raw markdown via Vite in tests.
+import readmeZhCn from "../../README.zh-CN.md?raw";
 import { describe, expect, it, vi } from "vitest";
 import { findEnabledTool, getEnabledTools } from "../../src/mcp/tool-registry";
 import { buildAliasMap, buildHandlerMap, buildToolDefinitions } from "../../src/mcp/tool-catalog";
@@ -229,6 +231,39 @@ describe("tool manifest task 1 infrastructure", () => {
 
   it("does not document deprecated dotted Tavily names in the README", () => {
     expect(readme).not.toContain("tavily.search");
+  });
+
+  it("keeps generated README tool snippets aligned with canonical paper tool names", () => {
+    expect(readme).toContain("paper_search");
+    expect(readme).toContain("paper_get_details");
+    expect(readme).toContain("paper_get_related");
+    expect(readmeZhCn).toContain("paper_search");
+    expect(readmeZhCn).toContain("paper_get_details");
+    expect(readmeZhCn).toContain("paper_get_related");
+    expect(readme).not.toContain("paper-search");
+    expect(readmeZhCn).not.toContain("paper-search");
+  });
+
+  it("keeps generated README auth and product documentation copy present", () => {
+    expect(readme).toContain("[中文](./README.zh-CN.md)");
+    expect(readmeZhCn).toContain("[English](./README.md)");
+
+    for (const content of [readme, readmeZhCn]) {
+      expect(content).toContain("Claude");
+      expect(content).toContain("Cursor");
+      expect(content).toContain("Cline");
+      expect(content).toContain("Cherry Studio");
+      expect(content).toContain("Codex");
+      expect(content).toContain("https://mcp.awsl.app/mcp?key=elysia");
+      expect(content).toContain("https://github.com/DoingDog/toolhive-mcp");
+      expect(content).toContain("Bearer");
+      expect(content).toContain("x-api-key / API key");
+      expect(content).toContain("query `key`");
+      expect(content).not.toContain("OAuth");
+    }
+
+    expect(readme).not.toContain("Demo endpoint: `https://mcp.awsl.app/mcp`");
+    expect(readmeZhCn).not.toContain("演示地址：`https://mcp.awsl.app/mcp`");
   });
 
   it("does not expose any news tools from getEnabledTools", () => {

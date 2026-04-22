@@ -1,67 +1,146 @@
+[中文](./README.zh-CN.md)
+
 # Toolhive MCP
 
-Toolhive MCP is a remote HTTP MCP server built for Cloudflare Workers. It packages a practical set of MCP tools behind one `/mcp` endpoint, keeps tool names Anthropic-compatible, and is ready to run as a hosted endpoint instead of a local stdio server.
+Toolhive MCP is a hosted HTTP MCP server for Cloudflare Workers. It turns a practical bundle of MCP tools into one remote `/mcp` endpoint so you can connect Claude-compatible clients without running a local stdio server.
 
-Demo endpoint: `https://mcp.awsl.app/mcp`
+## What this project is
 
-## Why
+Use Toolhive MCP when you want:
 
-Running MCP tools behind a single hosted endpoint is useful when you want:
-
-- a browser-friendly, remotely accessible MCP server
-- one deployment that combines native utilities and selected third-party integrations
+- one public MCP endpoint instead of a local daemon
+- Cloudflare Workers deployment with low operational overhead
 - Anthropic-compatible canonical tool names such as `context7_query_docs` and `tavily_search`
-- Cloudflare Workers deployment instead of maintaining a long-running custom server
+- a manifest-driven tool surface that stays aligned with the actual server implementation
 
-## Features
+## Online demo
 
-Current release: `toolhive-mcp@0.4.0`
+Copy this demo endpoint directly into your MCP client:
 
-Current release capabilities:
+`https://mcp.awsl.app/mcp?key=elysia`
 
-- Native tools: `weather`, `time`, `whoami`, `webfetch`, `calc`
-- Paper tools: `paper_search`, `paper_get_details`, `paper_get_related`
-- Env-gated paper tool: `paper_get_open_access`
-- External tools: `iplookup`, `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
-- Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
-- Env-gated tool exposure: tools that require provider credentials only appear when the corresponding secrets are configured
-- HTTP endpoints exposed at `/mcp`, `/healthz`, `/readyz`, and `/version`
+Additional public endpoints:
 
-## Endpoints
+- Health: `https://mcp.awsl.app/healthz`
+- Ready: `https://mcp.awsl.app/readyz`
+- Version: `https://mcp.awsl.app/version`
 
-The server exposes these HTTP endpoints:
+## Quick client setup
 
-- MCP: `https://mcp.awsl.app/mcp`
-- Health check: `https://mcp.awsl.app/healthz`
-- Readiness check: `https://mcp.awsl.app/readyz`
-- Version metadata: `https://mcp.awsl.app/version`
+All examples below use the live demo endpoint:
 
-When self-hosting, configure your MCP client to use:
+`https://mcp.awsl.app/mcp?key=elysia`
 
-- `https://<your-worker-domain>/mcp`
+### Claude
 
-Additional worker endpoints are also available when self-hosting:
+Add a remote MCP server in Claude and use:
 
-- `https://<your-worker-domain>/healthz`
-- `https://<your-worker-domain>/readyz`
-- `https://<your-worker-domain>/version`
+- URL: `https://mcp.awsl.app/mcp?key=elysia`
+- Transport: Streamable HTTP / HTTP MCP
 
-Only `/mcp` accepts MCP requests in this project; `/healthz`, `/readyz`, and `/version` are standard HTTP endpoints.
+If your Claude build asks for headers instead of a full URL with query params, use `https://mcp.awsl.app/mcp` and send one of the supported auth options from the next section.
 
-## Deploy
+### Cursor
 
-Install dependencies and deploy with Wrangler:
+In Cursor MCP settings, add a remote server pointing to:
+
+```json
+{
+  "mcpServers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+### Cline
+
+In Cline's MCP server configuration, add:
+
+```json
+{
+  "mcpServers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+### Cherry Studio
+
+In Cherry Studio, create a custom MCP server with:
+
+- Name: `toolhive-mcp`
+- Type: Remote / HTTP MCP
+- URL: `https://mcp.awsl.app/mcp?key=elysia`
+
+### Codex
+
+For Codex clients that accept remote MCP configuration, use:
+
+```json
+{
+  "mcp_servers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+## Supported authentication
+
+Toolhive MCP currently supports these authentication styles:
+
+- Bearer
+- x-api-key / API key
+- query `key`
+
+Examples:
+
+```http
+Authorization: Bearer elysia
+```
+
+```http
+x-api-key: elysia
+```
+
+```text
+https://mcp.awsl.app/mcp?key=elysia
+```
+
+This release uses only Bearer, x-api-key / API key, or query `key` authentication.
+
+## Self-hosting
+
+For your own deployment, point clients to:
+
+- MCP: `https://<your-worker-domain>/mcp`
+- Health: `https://<your-worker-domain>/healthz`
+- Ready: `https://<your-worker-domain>/readyz`
+- Version: `https://<your-worker-domain>/version`
+
+### Deploy to Cloudflare Workers
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DoingDog/toolhive-mcp)
+
+Repository: `https://github.com/DoingDog/toolhive-mcp`
+
+Manual deployment:
 
 ```bash
 npm install
 npm run deploy
 ```
 
-This project targets Cloudflare Workers and uses the repository's existing `wrangler.jsonc` configuration.
+The project uses the repository's existing `wrangler.jsonc` configuration.
 
-## Secrets
+### Optional third-party secrets
 
-Third-party tools are enabled by Cloudflare secrets. Set only the providers you actually want to expose.
+Only configure the providers you want to expose:
 
 ```bash
 npx wrangler secret put TAVILY_API_KEYS
@@ -71,7 +150,33 @@ npx wrangler secret put UNSPLASH_ACCESS_KEYS
 npx wrangler secret put PUREMD_API_KEYS
 ```
 
-Each secret accepts either a single key or a comma-separated list of keys. The server selects from the configured keys at request time.
+Each secret can contain one key or a comma-separated list of keys.
+
+## Tool catalog
+
+The block below is generated from the manifest and should be refreshed with `npm run render:readme`.
+
+<!-- GENERATED:README_TOOLING:start -->
+### Generated tool snapshot
+
+Demo endpoint: `https://mcp.awsl.app/mcp?key=elysia`
+
+Supported auth:
+
+- Bearer
+- x-api-key / API key
+- query `key`
+
+Manifest-backed tool surface:
+
+- Native tools: `weather`, `time`, `whoami`, `webfetch`, `calc`
+- Paper tools: `paper_search`, `paper_get_details`, `paper_get_related`
+- Env-gated paper tool: `paper_get_open_access`
+- External tools: `iplookup`
+- Env-gated external tools: `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
+- Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
+- Run `npm run render:readme` to refresh this block from `src/mcp/tool-manifest.ts`.
+<!-- GENERATED:README_TOOLING:end -->
 
 ## Development
 
@@ -89,42 +194,22 @@ Useful notes:
 - `npm run dev` starts the Worker locally through Wrangler
 - `npm test` runs the Vitest suite
 - `npm run typecheck` runs TypeScript without emitting build output
-- `GET /version` reports the runtime package metadata, including the current release version from `package.json`
+- `GET /version` reports runtime package metadata from `package.json`
 
-## Disabled domain tools
+## Current release notes
+
+### Disabled domain tools
 
 Domain-related tools are intentionally disabled in this release.
 
-The codebase still contains domain integration code for possible future re-enable, but the released MCP surface does not expose any `domain_*` tools. README examples and feature descriptions should not be read as implying that domain tools are currently available.
+The codebase still contains domain integration code for possible future re-enable, but the released MCP surface does not expose any `domain_*` tools.
 
-## Disabled news tools
+### Disabled news tools
 
 News tools are intentionally disabled in this release.
 
-The codebase still contains news integration code for possible future re-enable, but the released MCP surface does not expose any `news_*` tools. README examples and feature descriptions should not be read as implying that news tools are currently available.
+The codebase still contains news integration code for possible future re-enable, but the released MCP surface does not expose any `news_*` tools.
 
 ## License
 
 This project is released under the 0BSD license. See [`LICENSE`](./LICENSE).
-
-## Acknowledgements
-
-### Open-source references
-
-- Cloudflare Workers and Wrangler for the deployment runtime and development workflow
-- The MCP ecosystem patterns that informed the HTTP tool-serving shape of this project
-- Upstream service documentation used to align request and response handling
-
-### Community packages
-
-- Tavily for search, extract, crawl, and research APIs
-- Context7 for library resolution and documentation querying
-- Unsplash for image search
-- Pure.md for content extraction
-- Vitest and TypeScript for testing and type safety
-
-### With Claude
-
-- Planned, refined, and prepared with Claude-assisted development workflows
-- Release-facing documentation rewritten with Claude as an editing and structuring partner
-- Final tool-surface notes kept aligned with the current release constraints, including the disabled domain tools

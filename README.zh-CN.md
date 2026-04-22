@@ -1,61 +1,148 @@
+[English](./README.md)
+
 # Toolhive MCP
 
-Toolhive MCP 是一个部署在 Cloudflare Workers 上的远程 HTTP MCP 服务。它把一组实用的 MCP 工具收敛到同一个 `/mcp` 端点下，工具命名遵循 Anthropic 兼容的 canonical naming，适合直接作为可托管的 MCP endpoint 使用。
+Toolhive MCP 是一个部署在 Cloudflare Workers 上的远程 HTTP MCP 服务。它把一组常用工具统一暴露到同一个 `/mcp` 入口，适合直接给 Claude 兼容客户端接入，不需要再维护本地 stdio 进程。
 
-演示地址：`https://mcp.awsl.app/mcp`
-
-## 为什么做这个项目
+## 这是什么
 
 如果你希望：
 
-- 用远程 HTTP 方式提供 MCP，而不是本地 stdio 服务
-- 在一个服务里整合原生工具和部分第三方工具
-- 使用 Anthropic 兼容的工具命名，例如 `context7_query-docs`、`tavily_search`
-- 直接复用 Cloudflare Workers 的部署模型
+- 用一个远程 MCP 地址服务多个客户端
+- 直接走 Cloudflare Workers 部署，降低运维负担
+- 使用 Anthropic 兼容的工具命名，例如 `context7_query_docs`、`tavily_search`
+- 让 README 中的工具说明和真实实现保持一致
 
-那么这个项目就是一个比较直接的起点。
+那么这个项目就是一个可以直接拿来用的方案。
 
-## 功能特性
+## 在线 demo
 
-当前版本实际可用的能力包括：
+可直接复制的 demo 地址：
 
-- 原生工具：`weather`、`webfetch`、`calc`、`time`、`whoami`、`iplookup`
-- Context7：`context7_resolve-library-id`、`context7_query-docs`
-- Tavily：`tavily_search`、`tavily_extract`、`tavily_crawl`
-- Exa：`exa_search`
-- Unsplash：`unsplash_search_photos`
-- Pure.md：`puremd_extract`
-- 开发者工具集：`devutils_base64_encode`、`devutils_base64_decode`、`devutils_hash`、`devutils_uuid`、`devutils_jwt_decode`、`devutils_json_format`、`devutils_json_validate`、`devutils_regex_test`、`devutils_url_parse`、`devutils_timestamp_convert`、`devutils_ip_validate`、`devutils_cidr_calculate`、`devutils_text_stats`、`devutils_slugify`、`devutils_case_convert`
-- 通过环境变量控制第三方工具是否暴露
-- `iplookup` 使用免费的 `ip-api.com/json` 接口，因此会继承该服务自身的传输方式与限流约束
-- 统一通过 `/mcp` 提供 HTTP MCP 服务
+`https://mcp.awsl.app/mcp?key=elysia`
 
-## Endpoint
+公开辅助端点：
 
-当前正式 demo 地址：
+- Health：`https://mcp.awsl.app/healthz`
+- Ready：`https://mcp.awsl.app/readyz`
+- Version：`https://mcp.awsl.app/version`
 
-- `https://mcp.awsl.app/mcp`
+## 快速接入客户端
 
-如果你自行部署，MCP 客户端应配置为：
+下面的示例都使用同一个在线 demo：
 
-- `https://<your-worker-domain>/mcp`
+`https://mcp.awsl.app/mcp?key=elysia`
 
-本项目只支持 `/mcp` 这个 MCP 路径。
+### Claude
 
-## 部署
+在 Claude 中新增远程 MCP 服务，填写：
 
-先安装依赖，再通过 Wrangler 部署：
+- URL：`https://mcp.awsl.app/mcp?key=elysia`
+- Transport：Streamable HTTP / HTTP MCP
+
+如果你的 Claude 版本更适合单独配置 Header，也可以把地址写成 `https://mcp.awsl.app/mcp`，然后按下文的鉴权方式传认证信息。
+
+### Cursor
+
+在 Cursor 的 MCP 配置中加入：
+
+```json
+{
+  "mcpServers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+### Cline
+
+在 Cline 的 MCP 服务配置中加入：
+
+```json
+{
+  "mcpServers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+### Cherry Studio
+
+在 Cherry Studio 中新增一个自定义 MCP 服务：
+
+- 名称：`toolhive-mcp`
+- 类型：Remote / HTTP MCP
+- URL：`https://mcp.awsl.app/mcp?key=elysia`
+
+### Codex
+
+对于支持远程 MCP 配置的 Codex 客户端，可使用：
+
+```json
+{
+  "mcp_servers": {
+    "toolhive-mcp": {
+      "url": "https://mcp.awsl.app/mcp?key=elysia"
+    }
+  }
+}
+```
+
+## 当前支持的鉴权方式
+
+当前实现与文档一致，支持以下三种方式：
+
+- Bearer
+- x-api-key / API key
+- query `key`
+
+示例：
+
+```http
+Authorization: Bearer elysia
+```
+
+```http
+x-api-key: elysia
+```
+
+```text
+https://mcp.awsl.app/mcp?key=elysia
+```
+
+当前版本仅支持 Bearer、x-api-key / API key 和 query `key` 这三种鉴权方式。
+
+## 自部署说明
+
+如果你要自己部署，客户端地址改为：
+
+- MCP：`https://<your-worker-domain>/mcp`
+- Health：`https://<your-worker-domain>/healthz`
+- Ready：`https://<your-worker-domain>/readyz`
+- Version：`https://<your-worker-domain>/version`
+
+### 一键部署到 Cloudflare Workers
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DoingDog/toolhive-mcp)
+
+仓库地址：`https://github.com/DoingDog/toolhive-mcp`
+
+手动部署：
 
 ```bash
 npm install
 npm run deploy
 ```
 
-项目沿用仓库中现有的 `wrangler.jsonc` 配置，不需要为了本次发布去改动 Worker 配置本身。
+项目沿用仓库中的 `wrangler.jsonc` 配置。
 
-## Secrets
+### 可选第三方 Secret
 
-第三方工具是否可用，取决于你是否在 Cloudflare 上配置了对应 secrets。只配置你准备公开提供的那部分即可。
+只配置你准备开放的那部分能力即可：
 
 ```bash
 npx wrangler secret put TAVILY_API_KEYS
@@ -65,9 +152,35 @@ npx wrangler secret put UNSPLASH_ACCESS_KEYS
 npx wrangler secret put PUREMD_API_KEYS
 ```
 
-每个 secret 可以是一条 key，也可以是逗号分隔的多条 key；服务会在请求时进行选择。
+每个 secret 可以是一条 key，也可以是逗号分隔的多条 key。
 
-## 开发
+## 工具清单
+
+下面的区块由 manifest 自动生成，更新后请运行 `npm run render:readme`。
+
+<!-- GENERATED:README_TOOLING:start -->
+### 自动生成的工具快照
+
+演示地址：`https://mcp.awsl.app/mcp?key=elysia`
+
+支持的认证方式：
+
+- Bearer
+- x-api-key / API key
+- query `key`
+
+基于 manifest 的工具列表：
+
+- 原生工具：`weather`, `time`, `whoami`, `webfetch`, `calc`
+- Paper 工具：`paper_search`, `paper_get_details`, `paper_get_related`
+- 需环境变量的 Paper 工具：`paper_get_open_access`
+- 外部工具：`iplookup`
+- 需环境变量的外部工具：`exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
+- 开发者工具：`devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
+- 运行 `npm run render:readme` 可根据 `src/mcp/tool-manifest.ts` 刷新此区块。
+<!-- GENERATED:README_TOOLING:end -->
+
+## 开发说明
 
 本地开发流程：
 
@@ -83,35 +196,22 @@ npm run dev
 - `npm run dev` 会通过 Wrangler 启动本地 Worker
 - `npm test` 运行 Vitest 测试
 - `npm run typecheck` 执行 TypeScript 类型检查，不产出构建文件
+- `GET /version` 会返回 `package.json` 中的运行时版本信息
 
-## 已禁用的 domain 工具说明
+## 当前版本说明
+
+### 已禁用的 domain 工具
 
 当前 release 明确不暴露任何 `domain_*` 工具。
 
-仓库里仍然保留了相关 domain 集成代码，主要是为了后续可能重新启用时减少重复工作；但在这次对外发布里，它们不属于可用能力。也就是说，阅读 README 时不应推断 domain 工具已经开放。
+仓库中仍然保留了相关集成代码，但当前对外可用能力里不包含它们。
+
+### 已禁用的 news 工具
+
+当前 release 明确不暴露任何 `news_*` 工具。
+
+仓库中仍然保留了相关集成代码，但当前对外可用能力里不包含它们。
 
 ## 许可证
 
 本项目采用 0BSD 许可证发布。详见 [`LICENSE`](./LICENSE)。
-
-## 致谢
-
-### 开源参考
-
-- Cloudflare Workers 与 Wrangler，提供了部署运行时和本地开发基础
-- MCP 生态中的通用设计模式，为本项目的 HTTP MCP 形态提供了参考
-- 各上游服务的公开文档，帮助校准接口行为与参数形式
-
-### 社区包与服务
-
-- Tavily，提供搜索、抽取、抓取与 research 能力
-- Context7，提供库解析与文档查询能力
-- Unsplash，提供图片搜索能力
-- Pure.md，提供网页内容抽取能力
-- Vitest 与 TypeScript，支撑测试与类型安全
-
-### 与 Claude 一起完成
-
-- 项目规划、发布整理与文档重写过程中使用了 Claude 辅助协作
-- 英文与中文 README 的结构和表述经过 Claude 协助打磨
-- 对外说明中特别校准了当前 release 的真实边界，包括 domain 工具仍处于禁用状态

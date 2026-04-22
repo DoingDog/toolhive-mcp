@@ -1,5 +1,6 @@
 import { internalError, validationError } from "../../lib/errors";
 import type { ToolExecutionResult } from "../../mcp/result";
+import { classifyPaperInput, looksLikeDoi, normalizeNonEmptyString } from "./identifiers";
 import { isAuxiliaryPaperRecord, mergePaperResults, normalizeSearchTitleKey, scorePaperForQuery } from "./normalize";
 import { normalizeArxivEntry } from "./providers/arxiv";
 import { normalizeCrossrefReference, normalizeCrossrefWork } from "./providers/crossref";
@@ -89,64 +90,6 @@ function finalizeRelatedResults(papers: NormalizedPaper[]): NormalizedPaper[] {
   return mergePaperResults(papers)
     .filter((paper) => paper.title !== null)
     .sort((left, right) => scoreRelatedPaperCompleteness(right) - scoreRelatedPaperCompleteness(left));
-}
-
-function normalizeNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalizedValue = value.trim();
-  return normalizedValue.length > 0 ? normalizedValue : null;
-}
-
-function looksLikeDoi(value: string): boolean {
-  return /^10\.\S+\/\S+$/i.test(value.trim());
-}
-
-function looksLikeArxivId(value: string): boolean {
-  const normalizedValue = value.trim();
-  return /^(?:arxiv:)?(?:\d{4}\.\d{4,5}|[a-z.-]+\/\d{7})(?:v\d+)?$/i.test(normalizedValue);
-}
-
-type PaperQueryClassification =
-  | { kind: "doi"; doi: string }
-  | { kind: "arxiv_id"; arxivId: string; doi?: string }
-  | { kind: "text"; query: string };
-
-function normalizeArxivIdentifier(value: string): string {
-  return value.trim().replace(/^arxiv:/i, "").replace(/v\d+$/i, "");
-}
-
-function classifyPaperQuery(query: string): PaperQueryClassification {
-  const normalizedQuery = query.trim();
-
-  if (/^10\.48550\/arxiv\./i.test(normalizedQuery)) {
-    return {
-      kind: "arxiv_id",
-      arxivId: normalizeArxivIdentifier(normalizedQuery.replace(/^10\.48550\/arxiv\./i, "")),
-      doi: normalizedQuery
-    };
-  }
-
-  if (looksLikeArxivId(normalizedQuery)) {
-    return {
-      kind: "arxiv_id",
-      arxivId: normalizeArxivIdentifier(normalizedQuery)
-    };
-  }
-
-  if (looksLikeDoi(normalizedQuery)) {
-    return {
-      kind: "doi",
-      doi: normalizedQuery
-    };
-  }
-
-  return {
-    kind: "text",
-    query: normalizedQuery
-  };
 }
 
 type RelatedPaperIdClassification =
@@ -465,7 +408,7 @@ export async function handlePaperSearch(args: unknown, _context: ToolContext): P
     return validationError("query must be a non-empty string");
   }
 
-  const classification = classifyPaperQuery(query);
+  const classification = classifyPaperInput(query);
 
   if (classification.kind === "arxiv_id") {
     let arxivLookupFailed = false;
@@ -628,10 +571,17 @@ export async function handlePaperGetDetails(args: unknown, context: ToolContext)
     return validationError("doi or arxiv_id must be a non-empty string");
   }
 
+  const classification = classifyPaperInput(resolvedPaperId);
+  const enrichmentDoi = classification.kind === "arxiv_id"
+    ? classification.doi ?? doi
+    : classification.kind === "doi"
+      ? classification.doi
+      : doi;
+
   const providerResults = await Promise.allSettled([
-    ...(doi ? [fetchCrossrefDetails(doi), fetchOpenAlexDetails(doi)] : []),
-    ...(arxivId ? [fetchArxivDetails(arxivId)] : []),
-    ...(doi ? [lookupUnpaywallByDoi(doi, context.env)] : [])
+    ...(classification.kind === "arxiv_id" ? [fetchArxivDetails(classification.arxivId)] : []),
+    ...(enrichmentDoi ? [fetchCrossrefDetails(enrichmentDoi), fetchOpenAlexDetails(enrichmentDoi)] : []),
+    ...(enrichmentDoi ? [lookupUnpaywallByDoi(enrichmentDoi, context.env)] : [])
   ]);
 
   const providers: PaperProvider[] = [];
@@ -649,7 +599,11 @@ export async function handlePaperGetDetails(args: unknown, context: ToolContext)
     if ("provider" in value) {
       if (value.paper) {
         providers.push(value.provider);
-        papers.push(value.paper);
+        papers.push(
+          value.provider === "arxiv" && enrichmentDoi
+            ? { ...value.paper, doi: value.paper.doi ?? enrichmentDoi }
+            : value.paper
+        );
       }
       return;
     }

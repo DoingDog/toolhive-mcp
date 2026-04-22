@@ -3,10 +3,13 @@ import packageJson from "../../package.json";
 import worker from "../../src/worker";
 import { jsonRpcRequest } from "../helpers/request";
 
-const env = {};
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 
-async function call(path: string, init?: RequestInit): Promise<Response> {
+async function call(
+  path: string,
+  init?: RequestInit,
+  env: Record<string, string | undefined> = {}
+): Promise<Response> {
   return worker.fetch(new Request(`https://example.com${path}`, init), env, ctx);
 }
 
@@ -17,13 +20,31 @@ describe("MCP protocol", () => {
     expect(response.status).toBe(404);
   });
 
-  it("returns 405 for GET /mcp", async () => {
+  it("returns 405 with CORS headers for GET /mcp", async () => {
     const response = await call("/mcp", { method: "GET" });
 
     expect(response.status).toBe(405);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
   });
 
-  it("returns initialize JSON-RPC result with package-backed serverInfo", async () => {
+  it("returns 204 with CORS headers for OPTIONS /mcp", async () => {
+    const response = await call("/mcp", { method: "OPTIONS" });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
+  });
+
+  it("returns initialize JSON-RPC result with package-backed serverInfo and CORS headers", async () => {
     const response = await call("/mcp", jsonRpcRequest("initialize", {}));
     const body = (await response.json()) as {
       jsonrpc: string;
@@ -45,6 +66,12 @@ describe("MCP protocol", () => {
         version: packageJson.version
       }
     });
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
     expect(body.result.capabilities.tools).toEqual({});
   });
 
@@ -60,6 +87,165 @@ describe("MCP protocol", () => {
 
     expect(response.status).toBe(202);
     expect(await response.text()).toBe("");
+  });
+
+  it("returns 401 with CORS headers for tools/list without credentials when auth keys are configured", async () => {
+    const response = await call(
+      "/mcp",
+      jsonRpcRequest("tools/list", {}),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(response.headers.get("access-control-allow-headers")).toContain("content-type");
+    expect(response.headers.get("access-control-allow-headers")).toContain("accept");
+    expect(body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+  });
+
+  it("accepts Bearer credentials for tools/list", async () => {
+    const init = jsonRpcRequest("tools/list", {});
+    const response = await call(
+      "/mcp",
+      {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          Authorization: "Bearer valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts x-api-key credentials for tools/list", async () => {
+    const init = jsonRpcRequest("tools/list", {});
+    const response = await call(
+      "/mcp",
+      {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          "x-api-key": "valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts query param credentials for tools/call", async () => {
+    const response = await call(
+      "/mcp?key=valid-key",
+      jsonRpcRequest("tools/call", {
+        name: "devutils_base64_encode",
+        arguments: { text: "hello" }
+      }),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("aGVsbG8=")
+          }
+        ]
+      }
+    });
+  });
+
+  it("fails closed for protected methods when MCP_AUTH_KEYS contains only invalid keys, while keeping initialize public by product constraint", async () => {
+    const unauthorizedResponse = await call(
+      "/mcp",
+      jsonRpcRequest("tools/list", {}),
+      { MCP_AUTH_KEYS: "bad.key,bad~key" }
+    );
+    const unauthorizedBody = await unauthorizedResponse.json();
+    const initializeResponse = await call(
+      "/mcp",
+      jsonRpcRequest("initialize", {}),
+      { MCP_AUTH_KEYS: "bad.key,bad~key" }
+    );
+
+    expect(unauthorizedResponse.status).toBe(401);
+    expect(unauthorizedBody).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+    expect(initializeResponse.status).toBe(200);
+  });
+
+  it("accepts only product-valid keys from mixed MCP_AUTH_KEYS values", async () => {
+    const validInit = jsonRpcRequest("tools/list", {});
+    const validResponse = await call(
+      "/mcp",
+      {
+        ...validInit,
+        headers: {
+          ...(validInit.headers as Record<string, string>),
+          Authorization: "Bearer valid-key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key,bad.key" }
+    );
+    const invalidInit = jsonRpcRequest("tools/list", {});
+    const invalidResponse = await call(
+      "/mcp",
+      {
+        ...invalidInit,
+        headers: {
+          ...(invalidInit.headers as Record<string, string>),
+          Authorization: "Bearer bad.key"
+        }
+      },
+      { MCP_AUTH_KEYS: "valid-key,bad.key" }
+    );
+    const invalidBody = await invalidResponse.json();
+
+    expect(validResponse.status).toBe(200);
+    expect(invalidResponse.status).toBe(401);
+    expect(invalidBody).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32600,
+        message: "Unauthorized"
+      }
+    });
+  });
+
+  it("keeps initialize public when auth keys are configured", async () => {
+    const response = await call(
+      "/mcp",
+      jsonRpcRequest("initialize", {}),
+      { MCP_AUTH_KEYS: "valid-key" }
+    );
+
+    expect(response.status).toBe(200);
   });
 
   it("returns JSON-RPC method not found for unknown methods", async () => {

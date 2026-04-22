@@ -2,6 +2,7 @@ import type { JsonRpcRequest } from "./jsonrpc";
 import { jsonRpcError, jsonRpcResult } from "./jsonrpc";
 import { initializeResult } from "./protocol";
 import { internalError } from "../lib/errors";
+import { isAuthorizedMcpRequest, isProtectedMcpMethod } from "../lib/mcp-auth";
 import { toToolResult } from "./result";
 import { findEnabledTool, getEnabledTools } from "./tool-registry";
 import { validateToolArguments } from "./validate";
@@ -16,6 +17,10 @@ export async function handleJsonRpc(
   env: Env,
   originalRequest: Request
 ): Promise<Response> {
+  if (isProtectedMcpMethod(request.method) && !isAuthorizedMcpRequest(originalRequest, env)) {
+    return jsonRpcError(request.id ?? null, -32600, "Unauthorized", { status: 401 });
+  }
+
   switch (request.method) {
     case "initialize":
       return jsonRpcResult(request.id ?? null, initializeResult());

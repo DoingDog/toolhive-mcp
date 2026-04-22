@@ -11,6 +11,26 @@ const NOT_FOUND = new Response(null, {
   status: 404
 });
 
+const MCP_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-api-key, content-type, accept"
+};
+
+function withMcpCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+
+  for (const [name, value] of Object.entries(MCP_CORS_HEADERS)) {
+    headers.set(name, value);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
 function createHealthResponse(): Response {
   return Response.json({ status: "ok" });
 }
@@ -48,8 +68,12 @@ export default {
       return NOT_FOUND;
     }
 
+    if (request.method === "OPTIONS") {
+      return withMcpCors(new Response(null, { status: 204 }));
+    }
+
     if (request.method !== "POST") {
-      return METHOD_NOT_ALLOWED;
+      return withMcpCors(METHOD_NOT_ALLOWED);
     }
 
     let payload: unknown;
@@ -57,17 +81,17 @@ export default {
     try {
       payload = await request.json();
     } catch {
-      return jsonRpcError(null, -32700, "Parse error");
+      return withMcpCors(jsonRpcError(null, -32700, "Parse error"));
     }
 
     if (!isJsonRpcRequest(payload)) {
-      return jsonRpcError(null, -32600, "Invalid Request");
+      return withMcpCors(jsonRpcError(null, -32600, "Invalid Request"));
     }
 
     if (payload.method === "notifications/initialized" && payload.id === undefined) {
-      return new Response(null, { status: 202 });
+      return withMcpCors(new Response(null, { status: 202 }));
     }
 
-    return handleJsonRpc(payload, env, request);
+    return withMcpCors(await handleJsonRpc(payload, env, request));
   }
 };
