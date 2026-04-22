@@ -18,13 +18,14 @@ export function prependChangelogEntry(
   bullets: string[]
 ): string {
   const header = "# Changelog";
+  const newline = current.includes("\r\n") ? "\r\n" : "\n";
 
-  if (!current.startsWith(`${header}\n`)) {
+  if (!current.startsWith(`${header}${newline}`)) {
     throw new Error("CHANGELOG.md must start with '# Changelog'");
   }
 
-  const entry = [header, "", `## ${version} - ${date}`, "", ...bullets, "", ""].join("\n");
-  const rest = current.slice(header.length + 2);
+  const entry = [header, "", `## ${version} - ${date}`, "", ...bullets, "", ""].join(newline);
+  const rest = current.slice(header.length + newline.length * 2);
 
   return `${entry}${rest}`;
 }
