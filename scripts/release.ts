@@ -13,7 +13,7 @@ const rootDir = resolve(import.meta.dirname, "..");
 const packageJsonPath = resolve(rootDir, "package.json");
 const changelogPath = resolve(rootDir, "CHANGELOG.md");
 const releaseDate = new Date().toISOString().slice(0, 10);
-const pushArgs = ["push", "origin", "HEAD", "--follow-tags"];
+const pushArgs = (tagName: string) => ["push", "origin", "HEAD", `refs/tags/${tagName}`];
 
 function runStep(command: string, args: string[]): void {
   execFileSync(command, args, {
@@ -78,10 +78,12 @@ function main(): void {
   runStep("git", ["commit", "-m", `release: ${tagName}`]);
   runStep("git", ["tag", tagName]);
 
+  const pushCommandArgs = pushArgs(tagName);
+
   if (shouldPush()) {
-    runStep("git", pushArgs);
+    runStep("git", pushCommandArgs);
   } else {
-    process.stdout.write(`Dry run: git ${pushArgs.join(" ")}\n`);
+    process.stdout.write(`Dry run: git ${pushCommandArgs.join(" ")}\n`);
   }
 
   process.stdout.write(`Prepared ${tagName}.\n`);
