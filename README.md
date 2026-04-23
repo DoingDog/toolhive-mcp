@@ -143,14 +143,22 @@ The project uses the repository's existing `wrangler.jsonc` configuration.
 Only configure the providers you want to expose:
 
 ```bash
+npx wrangler secret put MCP_AUTH_KEYS
 npx wrangler secret put TAVILY_API_KEYS
 npx wrangler secret put CONTEXT7_API_KEYS
 npx wrangler secret put EXA_API_KEYS
 npx wrangler secret put UNSPLASH_ACCESS_KEYS
 npx wrangler secret put PUREMD_API_KEYS
+npx wrangler secret put PAPER_SEARCH_MCP_UNPAYWALL_EMAILS
 ```
 
-Each secret can contain one key or a comma-separated list of keys.
+Key notes:
+
+- `MCP_AUTH_KEYS` enables auth checks for protected `/mcp` methods only after you configure it.
+- `MCP_AUTH_KEYS` accepts one key or a comma-separated list of keys. Valid characters are letters, numbers, `_`, and `-`.
+- `PAPER_SEARCH_MCP_UNPAYWALL_EMAILS` is used for Unpaywall access and the `paper_get_open_access` tool.
+- `PAPER_SEARCH_MCP_UNPAYWALL_EMAILS` accepts one email or a comma-separated list of emails.
+- Provider key secrets can contain one key or a comma-separated list of keys.
 
 ## Tool catalog
 

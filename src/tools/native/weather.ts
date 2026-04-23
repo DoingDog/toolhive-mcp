@@ -27,14 +27,29 @@ export async function handleWeather(args: unknown, _context: ToolContext): Promi
     return validationError("lang must be a string");
   }
 
+  const normalizedLang = weatherArgs.lang
+    ? (() => {
+        const normalized = weatherArgs.lang.trim().replaceAll("_", "-").toLowerCase();
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) {
+          return null;
+        }
+
+        return normalized;
+      })()
+    : undefined;
+
+  if (normalizedLang === null) {
+    return validationError("lang must be a locale like zh-cn");
+  }
+
   if (weatherArgs.units !== undefined && weatherArgs.units !== "metric" && weatherArgs.units !== "us" && weatherArgs.units !== "uk") {
     return validationError("units must be metric, us, or uk");
   }
 
   const url = new URL(`https://wttr.in/${encodeURIComponent(query)}`);
   url.searchParams.set("format", format === "json" ? "j1" : "T");
-  if (weatherArgs.lang) {
-    url.searchParams.set("lang", weatherArgs.lang);
+  if (normalizedLang) {
+    url.searchParams.set("lang", normalizedLang);
   }
   if (weatherArgs.units === "us") {
     url.searchParams.set("u", "");

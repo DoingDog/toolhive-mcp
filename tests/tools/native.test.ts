@@ -49,6 +49,48 @@ describe("native tools", () => {
     });
   });
 
+  it("calc accepts compatible exponent and unicode operators", async () => {
+    await expect(handleCalc({ expression: "2**3" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: 8 }
+    });
+
+    await expect(handleCalc({ expression: "2 ** 3" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: 8 }
+    });
+
+    await expect(handleCalc({ expression: "-2**2" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: -4 }
+    });
+
+    await expect(handleCalc({ expression: "2**-2" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: 0.25 }
+    });
+
+    await expect(handleCalc({ expression: "6×7" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: 42 }
+    });
+
+    await expect(handleCalc({ expression: "8÷2" }, context)).resolves.toEqual({
+      ok: true,
+      data: { result: 4 }
+    });
+  });
+
+  it("calc keeps invalid repeated operators as validation errors", async () => {
+    const result = await handleCalc({ expression: "2***3" }, context);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe("validation_error");
+      expect(result.error.message).toBeTruthy();
+    }
+  });
+
   it("calc accepts expr alias", async () => {
     const result = await handleCalc({ expr: "2+2" }, context);
 
@@ -882,6 +924,100 @@ describe("native tools", () => {
     });
   });
 
+  it("weather normalizes zh-CN lang to wttr format", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"20"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ query: "Beijing", lang: "zh-CN" }, context);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Beijing?format=j1&lang=zh-cn");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        current_condition: [{ temp_C: "20" }]
+      }
+    });
+  });
+
+  it("weather normalizes zh_CN lang to wttr format", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"21"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ query: "Shanghai", lang: "zh_CN" }, context);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Shanghai?format=j1&lang=zh-cn");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        current_condition: [{ temp_C: "21" }]
+      }
+    });
+  });
+
+  it("weather keeps normalized zh-cn lang usable", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"22"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ query: "Guangzhou", lang: "zh-cn" }, context);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Guangzhou?format=j1&lang=zh-cn");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        current_condition: [{ temp_C: "22" }]
+      }
+    });
+  });
+
+  it("weather trims and normalizes broader lang tags like es-419", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"23"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ query: "Madrid", lang: "  es_419  " }, context);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Madrid?format=j1&lang=es-419");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        current_condition: [{ temp_C: "23" }]
+      }
+    });
+  });
+
+  it("weather rejects invalid lang locally without fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleWeather({ query: "Beijing", lang: "zh cn" }, context);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe("validation_error");
+      expect(result.error.message).toContain("lang");
+    }
+  });
+
   it("weather reports a repairable missing-query error", async () => {
     const result = await handleWeather({}, context);
 
@@ -1041,6 +1177,38 @@ describe("native tools", () => {
     });
   });
 
+  it("router dispatches compatible calc operators through JSON-RPC", async () => {
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "calc",
+          arguments: {
+            expression: "6×7"
+          }
+        }
+      },
+      {},
+      context.request
+    );
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("42")
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+  });
+
   it("router allows weather location alias through schema validation", async () => {
     const fetchMock = vi.fn(async () =>
       new Response('{"current_condition":[{"temp_C":"18"}]}', {
@@ -1069,6 +1237,48 @@ describe("native tools", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Tokyo?format=j1");
+    expect(body).toMatchObject({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("temp_C")
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+  });
+
+  it("router normalizes weather lang before fetch", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('{"current_condition":[{"temp_C":"18"}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "weather",
+          arguments: {
+            query: "Tokyo",
+            lang: "zh-CN"
+          }
+        }
+      },
+      {},
+      context.request
+    );
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith("https://wttr.in/Tokyo?format=j1&lang=zh-cn");
     expect(body).toMatchObject({
       result: {
         content: [

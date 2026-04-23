@@ -62,12 +62,12 @@ class ExpressionParser {
 
     while (true) {
       const token = this.peek();
-      if (token === "*") {
+      if (token === "*" || token === "×") {
         this.index += 1;
         value *= this.parsePower();
         continue;
       }
-      if (token === "/") {
+      if (token === "/" || token === "÷") {
         this.index += 1;
         value /= this.parsePower();
         continue;
@@ -91,7 +91,7 @@ class ExpressionParser {
   private parsePowerBase(): number {
     let value = this.parsePrimary();
 
-    if (this.peek() === "^") {
+    if (this.peek() === "^" || this.peek() === "**") {
       this.index += 1;
       value = value ** this.parsePower();
     }

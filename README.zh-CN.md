@@ -145,14 +145,22 @@ npm run deploy
 只配置你准备开放的那部分能力即可：
 
 ```bash
+npx wrangler secret put MCP_AUTH_KEYS
 npx wrangler secret put TAVILY_API_KEYS
 npx wrangler secret put CONTEXT7_API_KEYS
 npx wrangler secret put EXA_API_KEYS
 npx wrangler secret put UNSPLASH_ACCESS_KEYS
 npx wrangler secret put PUREMD_API_KEYS
+npx wrangler secret put PAPER_SEARCH_MCP_UNPAYWALL_EMAILS
 ```
 
-每个 secret 可以是一条 key，也可以是逗号分隔的多条 key。
+补充说明：
+
+- `MCP_AUTH_KEYS` 只有在配置后才会对 `/mcp` 中受保护的方法启用鉴权检查。
+- `MCP_AUTH_KEYS` 支持单个 key 或逗号分隔的多个 key；合法字符为字母、数字、`_`、`-`。
+- `PAPER_SEARCH_MCP_UNPAYWALL_EMAILS` 用于 Unpaywall 访问以及 `paper_get_open_access` 工具。
+- `PAPER_SEARCH_MCP_UNPAYWALL_EMAILS` 支持单个 email 或逗号分隔的多个 email。
+- 其他 provider key secret 也支持单个 key 或逗号分隔的多个 key。
 
 ## 工具清单
 
