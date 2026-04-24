@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 - 2026-04-24
+
+- docs: add weather calc normalization spec and plan
+- fix: normalize weather lang and calc operators
+- Merge branch 'paper-auth-productize'
+
 ## 0.4.1 - 2026-04-22
 
 - docs(plan): add paper auth productization implementation plan
