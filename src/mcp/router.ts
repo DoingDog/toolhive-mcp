@@ -1,16 +1,25 @@
-import type { JsonRpcRequest } from "./jsonrpc";
-import { jsonRpcError, jsonRpcResult } from "./jsonrpc";
-import { initializeResult } from "./protocol";
 import { internalError } from "../lib/errors";
 import { isAuthorizedMcpRequest, isProtectedMcpMethod } from "../lib/mcp-auth";
+import type { JsonRpcRequest } from "./jsonrpc";
+import { jsonRpcError, jsonRpcResult } from "./jsonrpc";
+import { buildPromptHandlerMap } from "./prompt-catalog";
+import { promptManifestEntries } from "./prompt-manifest";
+import { initializeResult } from "./protocol";
+import { findEnabledPrompt, getEnabledPrompts } from "./prompt-registry";
+import { buildResourceHandlerMap } from "./resource-catalog";
+import { resourceManifestEntries } from "./resource-manifest";
+import { findEnabledResource, getEnabledResources } from "./resource-registry";
 import { toToolResult } from "./result";
-import { findEnabledTool, getEnabledTools } from "./tool-registry";
-import { validateToolArguments } from "./validate";
 import { buildToolCatalog } from "./tool-catalog";
 import { getManifestEnabledEntries } from "./tool-manifest";
+import { findEnabledTool, getEnabledTools } from "./tool-registry";
+import { validateToolArguments } from "./validate";
 import type { ToolContext } from "../tools/types";
 
 export type Env = Record<string, string | undefined>;
+
+const resourceHandlerMap = buildResourceHandlerMap(resourceManifestEntries);
+const promptHandlerMap = buildPromptHandlerMap(promptManifestEntries);
 
 export async function handleJsonRpc(
   request: JsonRpcRequest,
@@ -28,6 +37,61 @@ export async function handleJsonRpc(
       return jsonRpcResult(request.id ?? null, {
         tools: getEnabledTools(env, { disabledTools: getDisabledTools(originalRequest) })
       });
+    case "resources/list":
+      return jsonRpcResult(request.id ?? null, {
+        resources: getEnabledResources(env)
+      });
+    case "resources/read": {
+      const params = request.params;
+      if (!params || typeof params !== "object") {
+        return jsonRpcError(request.id ?? null, -32602, "Invalid params");
+      }
+
+      const uri = "uri" in params ? (params as { uri?: unknown }).uri : undefined;
+      if (typeof uri !== "string") {
+        return jsonRpcError(request.id ?? null, -32602, "Invalid params");
+      }
+
+      const resource = findEnabledResource(uri, env);
+      if (!resource) {
+        return jsonRpcError(request.id ?? null, -32602, `Unknown resource: ${uri}`);
+      }
+
+      const result = await resourceHandlerMap.get(resource.uri)?.({ env, request: originalRequest });
+      return jsonRpcResult(request.id ?? null, result);
+    }
+    case "prompts/list":
+      return jsonRpcResult(request.id ?? null, {
+        prompts: getEnabledPrompts(env)
+      });
+    case "prompts/get": {
+      const params = request.params;
+      if (!params || typeof params !== "object") {
+        return jsonRpcError(request.id ?? null, -32602, "Invalid params");
+      }
+
+      const name = "name" in params ? (params as { name?: unknown }).name : undefined;
+      if (typeof name !== "string") {
+        return jsonRpcError(request.id ?? null, -32602, "Invalid params");
+      }
+
+      const prompt = findEnabledPrompt(name, env);
+      if (!prompt) {
+        return jsonRpcError(request.id ?? null, -32602, `Unknown prompt: ${name}`);
+      }
+
+      const args = "arguments" in params ? (params as { arguments?: unknown }).arguments ?? {} : {};
+      const validationErrorMessage = validateToolArguments(prompt.argumentsSchema, args);
+      if (validationErrorMessage) {
+        return jsonRpcError(request.id ?? null, -32602, validationErrorMessage);
+      }
+
+      const result = await promptHandlerMap.get(prompt.name)?.(args as Record<string, unknown>, {
+        env,
+        request: originalRequest
+      });
+      return jsonRpcResult(request.id ?? null, result);
+    }
     case "tools/call": {
       const params = request.params;
       if (!params || typeof params !== "object") {

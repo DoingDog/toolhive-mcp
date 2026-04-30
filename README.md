@@ -183,7 +183,16 @@ Manifest-backed tool surface:
 - External tools: `iplookup`
 - Env-gated external tools: `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
 - Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
-- Run `npm run render:readme` to refresh this block from `src/mcp/tool-manifest.ts`.
+
+Built-in resources:
+- `resource://toolhive/overview` (text/markdown, static)
+- `resource://toolhive/auth` (text/markdown, static)
+- `resource://toolhive/catalog` (text/markdown, static)
+- `resource://toolhive/runtime/enabled` (application/json, runtime)
+
+Built-in prompts:
+- `choose_tool_for_task`, `research_with_sources`, `developer_utility_workflow`
+- Run `npm run render:readme` to refresh this block from `src/mcp/tool-manifest.ts`, `src/mcp/resource-manifest.ts`, and `src/mcp/prompt-manifest.ts`.
 <!-- GENERATED:README_TOOLING:end -->
 
 ## Development

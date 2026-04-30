@@ -185,7 +185,16 @@ npx wrangler secret put PAPER_SEARCH_MCP_UNPAYWALL_EMAILS
 - 外部工具：`iplookup`
 - 需环境变量的外部工具：`exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
 - 开发者工具：`devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
-- 运行 `npm run render:readme` 可根据 `src/mcp/tool-manifest.ts` 刷新此区块。
+
+内置 Resources：
+- `resource://toolhive/overview` (text/markdown, static)
+- `resource://toolhive/auth` (text/markdown, static)
+- `resource://toolhive/catalog` (text/markdown, static)
+- `resource://toolhive/runtime/enabled` (application/json, runtime)
+
+内置 Prompts：
+- `choose_tool_for_task`, `research_with_sources`, `developer_utility_workflow`
+- 运行 `npm run render:readme` 可根据 `src/mcp/tool-manifest.ts`、`src/mcp/resource-manifest.ts` 和 `src/mcp/prompt-manifest.ts` 刷新此区块。
 <!-- GENERATED:README_TOOLING:end -->
 
 ## 开发说明
