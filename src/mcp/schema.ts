@@ -21,6 +21,34 @@ export type JsonSchema = {
   additionalProperties?: boolean | JsonSchemaProperty;
 };
 
+export type ResourceDefinition = {
+  uri: string;
+  name: string;
+  title?: string;
+  description: string;
+  mimeType: string;
+};
+
+export type ResourceContents = {
+  uri: string;
+  mimeType: string;
+  text: string;
+};
+
+export type PromptArgumentDefinition = {
+  name: string;
+  title?: string;
+  description?: string;
+  required?: boolean;
+};
+
+export type PromptDefinition = {
+  name: string;
+  title?: string;
+  description: string;
+  arguments?: PromptArgumentDefinition[];
+};
+
 export type ToolDefinition = {
   name: string;
   description: string;

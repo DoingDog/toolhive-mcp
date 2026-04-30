@@ -9,7 +9,9 @@ export function initializeResult() {
   return {
     protocolVersion: "2025-06-18",
     capabilities: {
-      tools: {}
+      tools: {},
+      resources: {},
+      prompts: {}
     },
     serverInfo: SERVER_INFO
   };
