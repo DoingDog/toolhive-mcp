@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3 - 2026-04-30
+
+- Merge branch 'feature/mcp-resource-prompt-support'
+- feat(mcp): add resource and prompt support
+
 ## 0.4.2 - 2026-04-24
 
 - docs: add weather calc normalization spec and plan
