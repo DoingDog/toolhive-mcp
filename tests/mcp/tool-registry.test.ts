@@ -322,9 +322,11 @@ describe("tool manifest task 1 infrastructure", () => {
     expect(readme).toContain("paper_search");
     expect(readme).toContain("paper_get_details");
     expect(readme).toContain("paper_get_related");
+    expect(readme).toContain("dns_query");
     expect(readmeZhCn).toContain("paper_search");
     expect(readmeZhCn).toContain("paper_get_details");
     expect(readmeZhCn).toContain("paper_get_related");
+    expect(readmeZhCn).toContain("dns_query");
     expect(readme).not.toContain("paper-search");
     expect(readmeZhCn).not.toContain("paper-search");
   });

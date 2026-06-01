@@ -1,8 +1,11 @@
 import { upstreamError, validationError } from "../../lib/errors";
 import { createResponseMetadata } from "../../lib/response-metadata";
+import { fetchGuardedText } from "../../lib/upstream";
 import type { ToolExecutionResult } from "../../mcp/result";
 
 const DNS_GOOGLE_RESOLVE_URL = "https://dns.google/resolve";
+const DNS_GOOGLE_TIMEOUT_MS = 10_000;
+const DNS_GOOGLE_MAX_BYTES = 64 * 1024;
 const MAX_DNS_NAME_LENGTH = 253;
 const MIN_RR_TYPE_CODE = 1;
 const MAX_RR_TYPE_CODE = 65535;
@@ -422,24 +425,28 @@ export async function handleDnsQuery(args: unknown): Promise<ToolExecutionResult
   }
 
   const query = normalized.query!;
-  let response: Response;
-  try {
-    response = await fetch(buildDnsGoogleUrl(query));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return upstreamError(`Google Public DNS request failed: ${message}`);
+  const guarded = await fetchGuardedText(
+    { url: buildDnsGoogleUrl(query) },
+    {
+      serviceName: "Google Public DNS",
+      timeoutMs: DNS_GOOGLE_TIMEOUT_MS,
+      maxBytes: DNS_GOOGLE_MAX_BYTES
+    }
+  );
+  if ("error" in guarded) {
+    return guarded;
   }
 
-  if (!response.ok) {
+  if (!guarded.response.ok) {
     return upstreamError(
-      `Google Public DNS returned ${response.status}: ${await response.text()}`,
-      response.status
+      `Google Public DNS returned ${guarded.response.status}: ${guarded.text}`,
+      guarded.response.status
     );
   }
 
   let data: unknown;
   try {
-    data = await response.json();
+    data = JSON.parse(guarded.text);
   } catch {
     return upstreamError("Google Public DNS returned invalid JSON");
   }
