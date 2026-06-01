@@ -205,14 +205,19 @@ function normalizeQuestions(value: unknown): SectionReadResult<DnsQuestion> {
 
   const records: DnsQuestion[] = [];
   for (const item of section.items!) {
-    if (!isObject(item) || !Number.isInteger(item.type)) {
+    if (!isObject(item)) {
+      continue;
+    }
+
+    const type = item.type;
+    if (typeof type !== "number" || !Number.isInteger(type)) {
       continue;
     }
 
     records.push({
       name: typeof item.name === "string" ? item.name : "",
-      type: item.type,
-      type_name: typeNameForCode(item.type)
+      type,
+      type_name: typeNameForCode(type)
     });
   }
 
@@ -220,14 +225,19 @@ function normalizeQuestions(value: unknown): SectionReadResult<DnsQuestion> {
 }
 
 function normalizeRecord(item: unknown): DnsRecord | undefined {
-  if (!isObject(item) || !Number.isInteger(item.type) || typeof item.data !== "string") {
+  if (!isObject(item) || typeof item.data !== "string") {
+    return undefined;
+  }
+
+  const type = item.type;
+  if (typeof type !== "number" || !Number.isInteger(type)) {
     return undefined;
   }
 
   return {
     name: typeof item.name === "string" ? item.name : "",
-    type: item.type,
-    type_name: typeNameForCode(item.type),
+    type,
+    type_name: typeNameForCode(type),
     ttl: typeof item.TTL === "number" ? item.TTL : null,
     data: item.data
   };
