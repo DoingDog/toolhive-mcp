@@ -465,7 +465,8 @@ describe("DNS query tool record parsers", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected DNS query to succeed");
-    const records = result.data.answer as Array<Record<string, unknown>>;
+    const data = result.data as { answer: Array<Record<string, unknown>> };
+    const records = data.answer;
     expect(records[0]).not.toHaveProperty("parsed");
     expect(records[1]).not.toHaveProperty("parsed");
     expect(records[2]).toEqual(expect.objectContaining({ parsed: { text: "\"unterminated", strings: ["\"unterminated"] } }));
