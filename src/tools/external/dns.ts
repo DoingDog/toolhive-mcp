@@ -165,7 +165,7 @@ function buildDnsGoogleUrl(query: NormalizedQuery): string {
 }
 
 function isValidStatus(value: unknown): value is number {
-  return Number.isInteger(value) && value >= 0 && value <= MAX_RCODE;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_RCODE;
 }
 
 function normalizeDnsResponse(raw: unknown, query: NormalizedQuery): ToolExecutionResult {
