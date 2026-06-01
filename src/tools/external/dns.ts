@@ -51,6 +51,25 @@ type NormalizedQuery = {
   cd: boolean;
 };
 
+type DnsQuestion = {
+  name: string;
+  type: number;
+  type_name: string;
+};
+
+type DnsRecord = {
+  name: string;
+  type: number;
+  type_name: string;
+  ttl: number | null;
+  data: string;
+};
+
+type SectionReadResult<T> = {
+  records?: T[];
+  error?: string;
+};
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -168,14 +187,85 @@ function isValidStatus(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_RCODE;
 }
 
+function readSection(value: unknown, sectionName: string): { items?: unknown[]; error?: string } {
+  if (value === undefined) {
+    return { items: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return { error: `${sectionName} must be an array when present` };
+  }
+
+  return { items: value };
+}
+
+function normalizeQuestions(value: unknown): SectionReadResult<DnsQuestion> {
+  const section = readSection(value, "Question");
+  if (section.error) return { error: section.error };
+
+  const records: DnsQuestion[] = [];
+  for (const item of section.items!) {
+    if (!isObject(item) || !Number.isInteger(item.type)) {
+      continue;
+    }
+
+    records.push({
+      name: typeof item.name === "string" ? item.name : "",
+      type: item.type,
+      type_name: typeNameForCode(item.type)
+    });
+  }
+
+  return { records };
+}
+
+function normalizeRecord(item: unknown): DnsRecord | undefined {
+  if (!isObject(item) || !Number.isInteger(item.type) || typeof item.data !== "string") {
+    return undefined;
+  }
+
+  return {
+    name: typeof item.name === "string" ? item.name : "",
+    type: item.type,
+    type_name: typeNameForCode(item.type),
+    ttl: typeof item.TTL === "number" ? item.TTL : null,
+    data: item.data
+  };
+}
+
+function normalizeRecords(value: unknown, sectionName: string): SectionReadResult<DnsRecord> {
+  const section = readSection(value, sectionName);
+  if (section.error) return { error: section.error };
+
+  const records: DnsRecord[] = [];
+  for (const item of section.items!) {
+    const record = normalizeRecord(item);
+    if (record) records.push(record);
+  }
+
+  return { records };
+}
+
 function normalizeDnsResponse(raw: unknown, query: NormalizedQuery): ToolExecutionResult {
   if (!isObject(raw)) {
     return upstreamError("Google Public DNS returned an invalid response shape");
   }
 
   if (!isValidStatus(raw.Status)) {
-    return upstreamError("Google Public DNS response is missing a numeric Status");
+    return upstreamError("Google Public DNS response is missing a valid numeric Status");
   }
+
+  const question = normalizeQuestions(raw.Question);
+  if (question.error) return upstreamError(`Google Public DNS returned invalid Question: ${question.error}`);
+
+  const answer = normalizeRecords(raw.Answer, "Answer");
+  if (answer.error) return upstreamError(`Google Public DNS returned invalid Answer: ${answer.error}`);
+
+  const authority = normalizeRecords(raw.Authority, "Authority");
+  if (authority.error) return upstreamError(`Google Public DNS returned invalid Authority: ${authority.error}`);
+
+  const additional = normalizeRecords(raw.Additional, "Additional");
+  if (additional.error) return upstreamError(`Google Public DNS returned invalid Additional: ${additional.error}`);
 
   return {
     ok: true,
@@ -198,10 +288,10 @@ function normalizeDnsResponse(raw: unknown, query: NormalizedQuery): ToolExecuti
         authenticated_data: raw.AD === true,
         checking_disabled: raw.CD === true
       },
-      question: [],
-      answer: [],
-      authority: [],
-      additional: [],
+      question: question.records!,
+      answer: answer.records!,
+      authority: authority.records!,
+      additional: additional.records!,
       comment: typeof raw.Comment === "string" ? raw.Comment : null,
       ...createResponseMetadata({ providerUsed: "dns.google", cached: false, partial: false })
     }

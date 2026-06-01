@@ -281,6 +281,126 @@ describe("DNS query tool request handling", () => {
   });
 });
 
+describe("DNS query tool response normalization", () => {
+  it("normalizes DNS response flags, questions, answers, authority, and additional records", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          Status: 0,
+          TC: false,
+          RD: true,
+          RA: true,
+          AD: true,
+          CD: false,
+          Question: [{ name: "example.com.", type: 1 }],
+          Answer: [
+            { name: "example.com.", type: 1, TTL: 300, data: "93.184.216.34" },
+            { name: "broken.example.", type: 1, TTL: 300 },
+            "not-a-record"
+          ],
+          Authority: [{ name: "example.com.", type: 6, TTL: "not-a-number", data: "ns.example. hostmaster.example. 1 2 3 4 5" }],
+          Additional: [{ name: "ns.example.com.", type: 28, TTL: 60, data: "2001:db8::1" }],
+          Comment: "ok"
+        })
+      )
+    );
+
+    const result = await handleDnsQuery({ name: "example.com", type: "A" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected DNS query to succeed");
+    expect(result.data).toMatchObject({
+      status: { code: 0, name: "NOERROR" },
+      flags: {
+        truncated: false,
+        recursion_desired: true,
+        recursion_available: true,
+        authenticated_data: true,
+        checking_disabled: false
+      },
+      question: [{ name: "example.com.", type: 1, type_name: "A" }],
+      answer: [{ name: "example.com.", type: 1, type_name: "A", ttl: 300, data: "93.184.216.34" }],
+      authority: [{ name: "example.com.", type: 6, type_name: "SOA", ttl: null, data: "ns.example. hostmaster.example. 1 2 3 4 5" }],
+      additional: [{ name: "ns.example.com.", type: 28, type_name: "AAAA", ttl: 60, data: "2001:db8::1" }],
+      comment: "ok"
+    });
+  });
+
+  it("returns ok true for NXDOMAIN DNS status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          Status: 3,
+          Question: [{ name: "nonexistent-dns-query-smoke.invalid.", type: 1 }],
+          Authority: [{ name: "invalid.", type: 6, TTL: 86400, data: "localhost. nobody.invalid. 1 3600 1200 604800 10800" }],
+          Comment: "name does not exist"
+        })
+      )
+    );
+
+    const result = await handleDnsQuery({ name: "nonexistent-dns-query-smoke.invalid", type: "A" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected NXDOMAIN to be a successful tool result");
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        status: { code: 3, name: "NXDOMAIN" },
+        answer: [],
+        comment: "name does not exist"
+      })
+    );
+  });
+
+  it("treats invalid top-level DNS JSON shapes as upstream errors", async () => {
+    const cases: unknown[] = [
+      null,
+      [],
+      { Status: "0" },
+      { Status: 1.5 },
+      { Status: -1 },
+      { Status: 65536 },
+      { Status: 0, Question: {} },
+      { Status: 0, Answer: {} },
+      { Status: 0, Authority: {} },
+      { Status: 0, Additional: {} }
+    ];
+
+    for (const payload of cases) {
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload)));
+      const result = await handleDnsQuery({ name: "example.com" });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error(`expected upstream error for ${JSON.stringify(payload)}`);
+      expect(result.error.type).toBe("upstream_error");
+    }
+  });
+
+  it("returns upstream_error for HTTP and JSON failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("server exploded", { status: 502 })));
+    const httpResult = await handleDnsQuery({ name: "example.com" });
+
+    expect(httpResult).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "Google Public DNS returned 502: server exploded"
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })));
+    const jsonResult = await handleDnsQuery({ name: "example.com" });
+
+    expect(jsonResult).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        type: "upstream_error",
+        message: "Google Public DNS returned invalid JSON"
+      })
+    });
+  });
+});
+
 describe("Exa HTTP API tool", () => {
   it("returns config_error when Exa keys are missing", async () => {
     const result = await handleExaSearch({ query: "mcp" }, {});
