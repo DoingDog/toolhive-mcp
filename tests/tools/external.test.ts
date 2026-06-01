@@ -9,6 +9,7 @@ import {
   handleDomainSearchDomains
 } from "../../src/tools/external/domain";
 import { handleIpLookup } from "../../src/tools/external/iplookup";
+import { handleDnsQuery } from "../../src/tools/external/dns";
 import {
   handleNewsGetNews,
   handleNewsGetNewsDetail,
@@ -167,6 +168,116 @@ describe("IP lookup tool", () => {
         }
       })
     });
+  });
+});
+
+describe("DNS query tool request handling", () => {
+  it("trims name, defaults type to A, and queries dns.google", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        Status: 0,
+        Question: [{ name: "example.com.", type: 1 }]
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleDnsQuery({ name: " example.com " });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected DNS query to succeed");
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        query: {
+          name: "example.com",
+          type: "A",
+          type_code: 1,
+          do: false,
+          cd: false
+        },
+        provider_used: "dns.google",
+        cached: false,
+        partial: false
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://dns.google/resolve?name=example.com&type=A");
+  });
+
+  it("passes named type and DNSSEC flags to dns.google", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ Status: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await handleDnsQuery({
+      name: "example.com",
+      type: " mx ",
+      do: true,
+      cd: true
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("https://dns.google/resolve?name=example.com&type=MX&do=true&cd=true");
+  });
+
+  it("accepts integer and decimal-string RR type codes", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ Status: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const integerResult = await handleDnsQuery({ name: "example.com", type: 65 });
+    const stringResult = await handleDnsQuery({ name: "example.com", type: "65400" });
+    const leadingZeroResult = await handleDnsQuery({ name: "example.com", type: "001" });
+
+    expect(integerResult.ok).toBe(true);
+    expect(stringResult.ok).toBe(true);
+    expect(leadingZeroResult.ok).toBe(true);
+
+    if (!integerResult.ok || !stringResult.ok || !leadingZeroResult.ok) {
+      throw new Error("expected numeric DNS type queries to succeed");
+    }
+
+    expect(integerResult.data).toEqual(expect.objectContaining({ query: expect.objectContaining({ type: "HTTPS", type_code: 65 }) }));
+    expect(stringResult.data).toEqual(expect.objectContaining({ query: expect.objectContaining({ type: "TYPE_65400", type_code: 65400 }) }));
+    expect(leadingZeroResult.data).toEqual(expect.objectContaining({ query: expect.objectContaining({ type: "A", type_code: 1 }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://dns.google/resolve?name=example.com&type=65");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://dns.google/resolve?name=example.com&type=65400");
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "https://dns.google/resolve?name=example.com&type=1");
+  });
+
+  it("rejects invalid DNS query arguments before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const invalidInputs: unknown[] = [
+      {},
+      { name: "" },
+      { name: "   " },
+      { name: 123 },
+      { name: "a".repeat(254) },
+      { name: "example.com", type: "NO_SUCH_TYPE" },
+      { name: "example.com", type: "+65" },
+      { name: "example.com", type: "65.0" },
+      { name: "example.com", type: "1e2" },
+      { name: "example.com", type: "65 66" },
+      { name: "example.com", type: "" },
+      { name: "example.com", type: "-1" },
+      { name: "example.com", type: 0 },
+      { name: "example.com", type: 65536 },
+      { name: "example.com", type: 65.5 },
+      { name: "example.com", type: Number.NaN },
+      { name: "example.com", type: Number.POSITIVE_INFINITY },
+      { name: "example.com", do: "true" },
+      { name: "example.com", cd: 1 },
+      { name: "example.com", do: null },
+      { name: "example.com", cd: {} }
+    ];
+
+    for (const input of invalidInputs) {
+      const result = await handleDnsQuery(input);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error(`expected validation failure for ${JSON.stringify(input)}`);
+      expect(result.error.type).toBe("validation_error");
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
