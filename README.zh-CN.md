@@ -182,7 +182,7 @@ npx wrangler secret put PAPER_SEARCH_MCP_UNPAYWALL_EMAILS
 - 原生工具：`weather`, `time`, `whoami`, `webfetch`, `calc`
 - Paper 工具：`paper_search`, `paper_get_details`, `paper_get_related`
 - 需环境变量的 Paper 工具：`paper_get_open_access`
-- 外部工具：`iplookup`
+- 外部工具：`dns_query`, `iplookup`
 - 需环境变量的外部工具：`exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
 - 开发者工具：`devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
 
