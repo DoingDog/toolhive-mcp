@@ -401,6 +401,79 @@ describe("DNS query tool response normalization", () => {
   });
 });
 
+describe("DNS query tool record parsers", () => {
+  it("adds parsed data for A, AAAA, MX, TXT, and CAA records", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          Status: 0,
+          Answer: [
+            { name: "example.com.", type: 1, TTL: 300, data: "93.184.216.34" },
+            { name: "example.com.", type: 28, TTL: 300, data: "2606:2800:220:1:248:1893:25c8:1946" },
+            { name: "example.com.", type: 15, TTL: 300, data: "10 mail.example.com." },
+            { name: "example.com.", type: 16, TTL: 300, data: "\"hello\" \"world\"" },
+            { name: "example.com.", type: 16, TTL: 300, data: "\"escaped \\\"quote\\\" and \\\\ slash\"" },
+            { name: "example.com.", type: 257, TTL: 300, data: "0 issue \"letsencrypt.org\"" },
+            { name: "example.com.", type: 257, TTL: 300, data: "0 iodef \"mailto:security team@example.com\"" },
+            { name: "example.com.", type: 257, TTL: 300, data: "0 issuewild sectigo.com" }
+          ],
+          Authority: [{ name: "example.com.", type: 15, TTL: 300, data: "20 backup.example.com." }],
+          Additional: [{ name: "example.com.", type: 1, TTL: 60, data: "192.0.2.10" }]
+        })
+      )
+    );
+
+    const result = await handleDnsQuery({ name: "example.com", type: "A" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected DNS query to succeed");
+    expect(result.data).toMatchObject({
+      answer: [
+        expect.objectContaining({ parsed: { address: "93.184.216.34" } }),
+        expect.objectContaining({ parsed: { address: "2606:2800:220:1:248:1893:25c8:1946" } }),
+        expect.objectContaining({ parsed: { preference: 10, exchange: "mail.example.com." } }),
+        expect.objectContaining({ parsed: { text: "helloworld", strings: ["hello", "world"] } }),
+        expect.objectContaining({ parsed: { text: "escaped \"quote\" and \\ slash", strings: ["escaped \"quote\" and \\ slash"] } }),
+        expect.objectContaining({ parsed: { flags: 0, tag: "issue", value: "letsencrypt.org" } }),
+        expect.objectContaining({ parsed: { flags: 0, tag: "iodef", value: "mailto:security team@example.com" } }),
+        expect.objectContaining({ parsed: { flags: 0, tag: "issuewild", value: "sectigo.com" } })
+      ],
+      authority: [expect.objectContaining({ parsed: { preference: 20, exchange: "backup.example.com." } })],
+      additional: [expect.objectContaining({ parsed: { address: "192.0.2.10" } })]
+    });
+  });
+
+  it("omits parsed when records are unsupported or parsing fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          Status: 0,
+          Answer: [
+            { name: "example.com.", type: 2, TTL: 300, data: "ns1.example.com." },
+            { name: "example.com.", type: 15, TTL: 300, data: "mail.example.com." },
+            { name: "example.com.", type: 16, TTL: 300, data: "\"unterminated" },
+            { name: "example.com.", type: 257, TTL: 300, data: "999 issue \"letsencrypt.org\"" },
+            { name: "example.com.", type: 257, TTL: 300, data: "0 issue \"\"" }
+          ]
+        })
+      )
+    );
+
+    const result = await handleDnsQuery({ name: "example.com" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected DNS query to succeed");
+    const records = result.data.answer as Array<Record<string, unknown>>;
+    expect(records[0]).not.toHaveProperty("parsed");
+    expect(records[1]).not.toHaveProperty("parsed");
+    expect(records[2]).toEqual(expect.objectContaining({ parsed: { text: "\"unterminated", strings: ["\"unterminated"] } }));
+    expect(records[3]).not.toHaveProperty("parsed");
+    expect(records[4]).not.toHaveProperty("parsed");
+  });
+});
+
 describe("Exa HTTP API tool", () => {
   it("returns config_error when Exa keys are missing", async () => {
     const result = await handleExaSearch({ query: "mcp" }, {});

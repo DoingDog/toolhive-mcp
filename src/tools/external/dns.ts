@@ -63,6 +63,7 @@ type DnsRecord = {
   type_name: string;
   ttl: number | null;
   data: string;
+  parsed?: unknown;
 };
 
 type SectionReadResult<T> = {
@@ -224,6 +225,108 @@ function normalizeQuestions(value: unknown): SectionReadResult<DnsQuestion> {
   return { records };
 }
 
+function unescapeSimpleQuotedValue(value: string): string {
+  return value.replace(/\\(["\\])/g, "$1");
+}
+
+function parseQuotedStrings(value: string): string[] | undefined {
+  const strings: string[] = [];
+  let index = 0;
+
+  while (index < value.length) {
+    while (index < value.length && /\s/.test(value[index]!)) index++;
+    if (index >= value.length) break;
+    if (value[index] !== '"') return undefined;
+    index++;
+
+    let current = "";
+    let closed = false;
+    while (index < value.length) {
+      const char = value[index]!;
+      if (char === "\\") {
+        const next = value[index + 1];
+        if (next === '"' || next === "\\") {
+          current += next;
+          index += 2;
+          continue;
+        }
+      }
+      if (char === '"') {
+        closed = true;
+        index++;
+        break;
+      }
+      current += char;
+      index++;
+    }
+
+    if (!closed) return undefined;
+    strings.push(current);
+  }
+
+  return strings.length ? strings : undefined;
+}
+
+function parseTxtData(data: string): { text: string; strings: string[] } {
+  const strings = parseQuotedStrings(data);
+  if (!strings) {
+    return { text: data, strings: [data] };
+  }
+
+  return { text: strings.join(""), strings };
+}
+
+function parseMxData(data: string): { preference: number; exchange: string } | undefined {
+  const match = data.match(/^\s*(\d+)\s+(.+?)\s*$/);
+  if (!match) return undefined;
+
+  return {
+    preference: Number(match[1]),
+    exchange: match[2]!
+  };
+}
+
+function parseCaaData(data: string): { flags: number; tag: string; value: string } | undefined {
+  const match = data.match(/^\s*(\d+)\s+(\S+)\s+(.+?)\s*$/);
+  if (!match) return undefined;
+
+  const flags = Number(match[1]);
+  if (!Number.isInteger(flags) || flags < 0 || flags > 255) return undefined;
+
+  const tag = match[2]!;
+  const rawValue = match[3]!;
+  let value: string;
+
+  if (rawValue.startsWith('"')) {
+    const parsed = parseQuotedStrings(rawValue);
+    if (!parsed || parsed.length !== 1) return undefined;
+    value = parsed[0]!;
+  } else if (/\s/.test(rawValue)) {
+    return undefined;
+  } else {
+    value = unescapeSimpleQuotedValue(rawValue);
+  }
+
+  if (value === "") return undefined;
+  return { flags, tag, value };
+}
+
+function parseRecordData(typeName: string, data: string): unknown | undefined {
+  switch (typeName) {
+    case "A":
+    case "AAAA":
+      return data === "" ? undefined : { address: data };
+    case "MX":
+      return parseMxData(data);
+    case "TXT":
+      return parseTxtData(data);
+    case "CAA":
+      return parseCaaData(data);
+    default:
+      return undefined;
+  }
+}
+
 function normalizeRecord(item: unknown): DnsRecord | undefined {
   if (!isObject(item) || typeof item.data !== "string") {
     return undefined;
@@ -234,12 +337,16 @@ function normalizeRecord(item: unknown): DnsRecord | undefined {
     return undefined;
   }
 
+  const typeName = typeNameForCode(type);
+  const parsed = parseRecordData(typeName, item.data);
+
   return {
     name: typeof item.name === "string" ? item.name : "",
     type,
-    type_name: typeNameForCode(type),
+    type_name: typeName,
     ttl: typeof item.TTL === "number" ? item.TTL : null,
-    data: item.data
+    data: item.data,
+    ...(parsed !== undefined ? { parsed } : {})
   };
 }
 
