@@ -289,7 +289,12 @@ describe("tool manifest task 1 infrastructure", () => {
       {},
       new Request("https://example.com/mcp", { method: "POST" })
     );
-    const body = await response.json();
+    const body = (await response.json()) as {
+      result: {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+    } & Record<string, unknown>;
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
@@ -305,7 +310,7 @@ describe("tool manifest task 1 infrastructure", () => {
       }
     });
     expect(body.result).not.toHaveProperty("isError");
-    const payload = JSON.parse(body.result.content[0].text);
+    const payload = JSON.parse(body.result.content[0]!.text);
     expect(payload.status).toEqual({ code: 3, name: "NXDOMAIN" });
   });
 
