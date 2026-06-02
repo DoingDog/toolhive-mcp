@@ -180,7 +180,7 @@ Manifest-backed tool surface:
 - Native tools: `weather`, `time`, `whoami`, `webfetch`, `calc`
 - Paper tools: `paper_search`, `paper_get_details`, `paper_get_related`
 - Env-gated paper tool: `paper_get_open_access`
-- External tools: `iplookup`
+- External tools: `dns_query`, `iplookup`
 - Env-gated external tools: `exa_search`, `tavily_search`, `tavily_extract`, `tavily_crawl`, `context7_resolve_library_id`, `context7_query_docs`, `puremd_extract`, `unsplash_search_photos`
 - Developer utilities: `devutils_base64_encode`, `devutils_base64_decode`, `devutils_hash`, `devutils_uuid`, `devutils_jwt_decode`, `devutils_json_format`, `devutils_json_validate`, `devutils_regex_test`, `devutils_url_parse`, `devutils_timestamp_convert`, `devutils_ip_validate`, `devutils_cidr_calculate`, `devutils_text_stats`, `devutils_slugify`, `devutils_case_convert`
 

@@ -1,5 +1,6 @@
 import type { AppEnv } from "../lib/env";
 import { handleContext7QueryDocs, handleContext7Resolve } from "../tools/external/context7";
+import { handleDnsQuery } from "../tools/external/dns";
 import { handleExaSearch } from "../tools/external/exa";
 import { handleIpLookup } from "../tools/external/iplookup";
 import { handlePuremdExtract } from "../tools/external/puremd";
@@ -310,6 +311,57 @@ const paperToolManifestEntries: ToolManifestEntry[] = [
 ];
 
 const externalToolManifestEntries: ToolManifestEntry[] = [
+  externalTool({
+    legacyName: "dns.query",
+    description: "Query DNS records through Google Public DNS JSON API. Supports common RR type names and numeric type codes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          minLength: 1,
+          maxLength: 253,
+          description: "DNS query name, such as example.com, _dmarc.example.com, or 8.8.8.8.in-addr.arpa. The handler trims whitespace."
+        },
+        type: {
+          anyOf: [
+            {
+              type: "string",
+              description:
+                "RR type name or decimal type code string. Named types: A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, SRV, CAA, DS, DNSKEY, RRSIG, NSEC, NSEC3, SVCB, HTTPS, ANY. Numeric strings must be decimal integers in 1..65535."
+            },
+            {
+              type: "integer",
+              minimum: 1,
+              maximum: 65535,
+              description: "DNS RR type code in 1..65535, such as 1 for A, 28 for AAAA, or 65 for HTTPS."
+            }
+          ],
+          default: "A",
+          description:
+            "DNS RR type name or numeric type code. Named types: A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, SRV, CAA, DS, DNSKEY, RRSIG, NSEC, NSEC3, SVCB, HTTPS, ANY. Numeric values must be decimal integers in 1..65535. Defaults to A."
+        },
+        do: {
+          type: "boolean",
+          default: false,
+          description: "DNSSEC OK flag. When true, asks dns.google to include DNSSEC-related data when available."
+        },
+        cd: {
+          type: "boolean",
+          default: false,
+          description: "Checking Disabled flag. When true, asks dns.google to disable DNSSEC validation checks."
+        }
+      },
+      required: ["name"],
+      additionalProperties: false
+    },
+    whenToUse: "Use to look up DNS records such as A, AAAA, MX, TXT, CAA, NS, SOA, PTR, SRV, HTTPS, SVCB, or numeric RR type codes.",
+    whenNotToUse: "Do not use for WHOIS, domain registration availability, zone transfers, or DNS provider administration.",
+    outputShape:
+      "DNS response payload with query, status, flags, question, answer, authority, additional, comment, provider metadata, raw record data, type_name, and parsed fields for A/AAAA/MX/TXT/CAA.",
+    limits: {},
+    handler: handleDnsQuery
+  }),
   externalTool({
     legacyName: "iplookup",
     description: "Look up IP or hostname geolocation and network details",

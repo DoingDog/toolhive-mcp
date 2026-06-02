@@ -3,6 +3,7 @@ import readme from "../../README.md?raw";
 // @ts-expect-error Vitest loads raw markdown via Vite in tests.
 import readmeZhCn from "../../README.zh-CN.md?raw";
 import { describe, expect, it, vi } from "vitest";
+import { handleJsonRpc } from "../../src/mcp/router";
 import { findEnabledTool, getEnabledTools } from "../../src/mcp/tool-registry";
 import { buildAliasMap, buildHandlerMap, buildToolDefinitions } from "../../src/mcp/tool-catalog";
 import { getToolDefinitions, type ToolManifestEntry } from "../../src/mcp/tool-manifest";
@@ -229,6 +230,90 @@ describe("tool manifest task 1 infrastructure", () => {
     expect(names).toContain("iplookup");
   });
 
+  it("exposes dns_query by default without provider env", () => {
+    const tools = getEnabledTools({});
+    const dnsTool = tools.find((tool) => tool.name === "dns_query");
+
+    expect(dnsTool).toBeDefined();
+    expect(dnsTool?.requiresEnv).toBeUndefined();
+    expect(findEnabledTool("dns.query", {})?.name).toBe("dns_query");
+    expect(findEnabledTool("dns_query", {})?.name).toBe("dns_query");
+  });
+
+  it("documents dns_query schema for names, type names, numeric type codes, and DNSSEC flags", () => {
+    const dnsTool = getEnabledTools({}).find((tool) => tool.name === "dns_query");
+
+    expect(dnsTool?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["name"],
+      additionalProperties: false,
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 253 },
+        type: {
+          anyOf: [{ type: "string" }, { type: "integer", minimum: 1, maximum: 65535 }]
+        },
+        do: { type: "boolean" },
+        cd: { type: "boolean" }
+      }
+    });
+    expect(dnsTool?.inputSchema.properties?.type?.description).toContain(
+      "A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, SRV, CAA, DS, DNSKEY, RRSIG, NSEC, NSEC3, SVCB, HTTPS, ANY"
+    );
+    expect(dnsTool?.inputSchema.properties?.type?.description).toContain("1..65535");
+  });
+
+  it("keeps DNS NXDOMAIN as a successful MCP tool result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          Status: 3,
+          Question: [{ name: "nonexistent-dns-query-smoke.invalid.", type: 1 }]
+        })
+      )
+    );
+
+    const response = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "dns_query",
+          arguments: {
+            name: "nonexistent-dns-query-smoke.invalid",
+            type: "A"
+          }
+        }
+      },
+      {},
+      new Request("https://example.com/mcp", { method: "POST" })
+    );
+    const body = (await response.json()) as {
+      result: {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+    } & Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.any(String)
+          }
+        ]
+      }
+    });
+    expect(body.result).not.toHaveProperty("isError");
+    const payload = JSON.parse(body.result.content[0]!.text);
+    expect(payload.status).toEqual({ code: 3, name: "NXDOMAIN" });
+  });
+
   it("does not document deprecated dotted Tavily names in the README", () => {
     expect(readme).not.toContain("tavily.search");
   });
@@ -237,9 +322,11 @@ describe("tool manifest task 1 infrastructure", () => {
     expect(readme).toContain("paper_search");
     expect(readme).toContain("paper_get_details");
     expect(readme).toContain("paper_get_related");
+    expect(readme).toContain("dns_query");
     expect(readmeZhCn).toContain("paper_search");
     expect(readmeZhCn).toContain("paper_get_details");
     expect(readmeZhCn).toContain("paper_get_related");
+    expect(readmeZhCn).toContain("dns_query");
     expect(readme).not.toContain("paper-search");
     expect(readmeZhCn).not.toContain("paper-search");
   });
