@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4 - 2026-06-02
+
+- merge: dns query tool
+- fix: harden dns query tool
+- docs: document dns query tool
+- fix: type dns registry test response
+- feat: expose dns query mcp tool
+- fix: type dns parser tests
+- feat: parse common dns record data
+- fix: narrow dns record type values
+- feat: normalize dns query responses
+- fix: typecheck dns status guard
+- feat: add dns query request handling
+- docs: add dns query tool implementation plan
+- docs: add dns query tool design
+
 ## 0.4.3 - 2026-04-30
 
 - Merge branch 'feature/mcp-resource-prompt-support'
